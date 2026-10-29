@@ -1,5 +1,5 @@
 // Network-first service worker: always tries the latest version, falls back to cache offline.
-const CACHE = 'skyfling-v2';
+const CACHE = 'skyfling-v3';
 const FILES = ['./', 'index.html', 'style.css', 'core.js', 'game.js', 'world3d.js', 'vendor/three.module.min.js', 'manifest.json', 'icon-192.png', 'icon-512.png'];
 self.addEventListener('install', (e) => { e.waitUntil(caches.open(CACHE).then((c) => c.addAll(FILES)).then(() => self.skipWaiting())); });
 self.addEventListener('activate', (e) => { e.waitUntil(self.clients.claim()); });

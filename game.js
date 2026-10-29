@@ -405,7 +405,7 @@ import * as W3 from './world3d.js';
   let simAcc = 0, gameT = 0, shake = 0;
   const trail = new Float32Array(64 * 3); let trailN = 0, trailHead = 0, trailTimer = 0;
   let snapCam = true;
-  const prev = { x: 0, y: 0, z: 0, p: 0, h: 0 }; // last physics state, for smooth interpolation between steps
+  const prev = { x: 0, y: 0, z: 0, p: 0, h: 0, gam: 0 }; // last physics state, for smooth interpolation between steps
   const planeLen = () => 3 * sig * P.st.scale * 1.3; // drawn a bit larger than the hitbox
   const HSTEP = 1 / 120;
 
@@ -414,7 +414,7 @@ import * as W3 from './world3d.js';
     P.rk = C.rocketStats(Math.max(1, S.lv.rocket));
     sig = P.st.sig;
     const ap = aimPos();
-    P.x = ap.x; P.y = ap.y; P.z = 0; P.v = 0; P.p = 0; P.h = 0; P.bank = 0; P.pr = 0; P.hr = 0;
+    P.x = ap.x; P.y = ap.y; P.z = 0; P.v = 0; P.p = 0; P.gam = 0; P.a = 0; P.h = 0; P.bank = 0; P.hr = 0;
     P.fuel = P.st.fuel; P.rocket = S.lv.rocket > 0 ? P.rk.time : 0;
     P.rocketOn = false; P.ground = false; P.water = false;
   }
@@ -442,8 +442,8 @@ import * as W3 from './world3d.js';
     const ap = aimPos();
     P.x = ap.x; P.y = ap.y; P.z = ap.z;
     P.v = P.st.vbg * C.slingPower(S.lv.sling) * power;
-    P.p = LAUNCH_PITCH; P.h = aim.yaw; P.bank = 0; P.pr = 0; P.hr = 0;
-    prev.x = P.x; prev.y = P.y; prev.z = P.z; prev.p = P.p; prev.h = P.h; simAcc = 0;
+    P.p = P.gam = LAUNCH_PITCH; P.a = 0; P.h = aim.yaw; P.bank = 0; P.hr = 0;
+    prev.x = P.x; prev.y = P.y; prev.z = P.z; prev.p = P.p; prev.h = P.h; prev.gam = P.gam; simAcc = 0;
     run = {
       dist: 0, coins: 0, distCoins: 0, pickCoins: 0, skimCoins: 0, gems: 0, picks: 0, rings: 0, balloons: 0, birds: 0,
       combo: 0, comboT: 0, maxCombo: 0, skimT: 0, skimShow: 0, maxAlt: 0, t: 0, record: false, end: '', endT: 0,
@@ -472,17 +472,62 @@ import * as W3 from './world3d.js';
     if (kind === 'pick') run.pickCoins += v;
   }
 
-  function endFlight(reason) {
+  // After a flight ends the plane becomes a loose body: it keeps its momentum, falls,
+  // bounces, tumbles and skids to a stop.
+  const wreck = { vx: 0, vy: 0, vz: 0, sp: 0, sr: 0, settle: 0 };
+  function endFlight(reason, cause) {
     if (state !== 'fly') return;
     state = 'ending';
     run.end = reason; run.endT = 0;
     Sfx.engineStop();
+    const g = P.gam || 0, cg = Math.cos(g);
+    wreck.vx = P.v * cg * Math.cos(P.h); wreck.vy = P.v * Math.sin(g); wreck.vz = P.v * cg * Math.sin(P.h);
+    wreck.sp = 0; wreck.sr = 0; wreck.settle = 0;
     if (reason === 'crash') {
+      const vb = P.st.vbg;
+      if (cause === 'ground') { wreck.vy = Math.abs(wreck.vy) * 0.3; wreck.vx *= 0.55; wreck.vz *= 0.55; }
+      else { wreck.vx *= -0.22; wreck.vz = wreck.vz * 0.3 + (Math.random() - 0.5) * vb * 0.6; wreck.vy = Math.max(wreck.vy, 0) * 0.3 + vb * 0.25; }
+      wreck.sp = (Math.random() < 0.5 ? -1 : 1) * (4 + Math.random() * 4);
+      wreck.sr = (Math.random() < 0.5 ? -1 : 1) * (5 + Math.random() * 6);
       Sfx.crash(); buzz([40, 30, 60]); shake = 1;
-      burstAt(P.x, P.y, P.z, 34, 14 * sig, 1.0, 0.9 * sig, '#ff9a3a', -2 * sig);
-      burstAt(P.x, P.y, P.z, 22, 8 * sig, 1.4, 1.4 * sig, '#555555', -1 * sig);
+      burstAt(P.x, P.y, P.z, 26, 12 * sig, 0.8, 0.8 * sig, '#ff9a3a', -2 * sig);
+      burstAt(P.x, P.y, P.z, 18, 7 * sig, 1.3, 1.3 * sig, '#666666', 1 * sig);
+      burstAt(P.x, P.y, P.z, 14, 10 * sig, 1.2, 0.35 * sig, MODELS[P.st.model].body, -9 * sig);
       S.stats.crashes++;
     }
+  }
+  function updateWreck(dt) {
+    const g = P.st.g, vb = P.st.vbg;
+    wreck.vy -= g * dt;
+    const air = Math.max(0, 1 - 0.35 * dt);
+    wreck.vx *= air; wreck.vz *= air;
+    P.x += wreck.vx * dt; P.y += wreck.vy * dt; P.z += wreck.vz * dt;
+    P.p += wreck.sp * dt; P.bank += wreck.sr * dt;
+    const hs = Math.hypot(wreck.vx, wreck.vz);
+    if (P.y <= 0) {
+      P.y = 0;
+      if (wreck.vy < -0.25 * vb) {
+        const hit = -wreck.vy;
+        wreck.vy = hit * 0.35; wreck.vx *= 0.72; wreck.vz *= 0.72; wreck.sp *= 0.6; wreck.sr *= 0.6;
+        Sfx.bounce(); shake = Math.max(shake, Math.min(0.6, hit / vb * 0.3));
+        const b = BIOMES[C.biomeIndex(P.x)];
+        burstAt(P.x, 0, P.z, 10, 5 * sig, 0.7, 0.7 * sig, b.water ? '#bfe6ff' : b.edge, -6 * sig);
+      } else {
+        wreck.vy = 0;
+        // ground friction, and the wreck settles flat (right way up or upside down)
+        const f = Math.max(0, hs - (BIOMES[C.biomeIndex(P.x)].water ? 1.4 : 0.7) * g * dt);
+        if (hs > 0) { wreck.vx *= f / hs; wreck.vz *= f / hs; }
+        wreck.sp *= Math.max(0, 1 - 6 * dt); wreck.sr *= Math.max(0, 1 - 6 * dt);
+        P.p += (0 - P.p) * Math.min(1, dt * 5);
+        const flat = Math.round(P.bank / Math.PI) * Math.PI;
+        P.bank += (flat - P.bank) * Math.min(1, dt * 5);
+        if (hs > 0.2 * vb && Math.random() < 0.4) spawn(P.x, 0.2 * sig, P.z, -wreck.vx * 0.1, (1 + Math.random() * 2) * sig, 0, 0.6, 0.6 * sig, BIOMES[C.biomeIndex(P.x)].edge, -3 * sig);
+      }
+    }
+    if (run.end === 'crash' && Math.random() < 0.5) spawn(P.x, P.y + 0.3 * sig, P.z, 0, 2 * sig, 0, 1.2, 1.0 * sig, '#555555', 0.5 * sig, 0.6);
+    run.dist = Math.max(run.dist, P.x);
+    if (P.y === 0 && hs < 0.06 * vb) wreck.settle += dt;
+    if (wreck.settle > 0.6 || run.endT > 5) finishRun();
   }
 
   function finishRun() {
@@ -608,7 +653,7 @@ import * as W3 from './world3d.js';
     simAcc += dt;
     while (simAcc >= HSTEP && state === 'fly') {
       simAcc -= HSTEP;
-      prev.x = P.x; prev.y = P.y; prev.z = P.z; prev.p = P.p; prev.h = P.h;
+      prev.x = P.x; prev.y = P.y; prev.z = P.z; prev.p = P.p; prev.h = P.h; prev.gam = P.gam;
       physStep(inp.u, inp.ux);
     }
     P.bank += ((P.hr || 0) * 0.65 - P.bank) * Math.min(1, dt * 6);
@@ -636,6 +681,11 @@ import * as W3 from './world3d.js';
     P.water = !!b.water;
     const wasGround = P.ground;
     const ev = C.stepPlane(P, u, HSTEP, lift, ux);
+    if (ev === 'smash') {
+      floatText(W * 0.5, H * 0.42, 'NOSE DIVE!', '#ff6b6b', 28, 1);
+      endFlight('crash', 'ground');
+      return;
+    }
     if (ev === 'bounce') {
       Sfx.bounce(); buzz(15); shake = Math.max(shake, 0.35);
       if (P.water) { burstAt(P.x, 0, P.z, 18, 9 * sig, 0.8, 0.7 * sig, '#bfe6ff', -9 * sig); Sfx.splash(); }
@@ -711,7 +761,7 @@ import * as W3 from './world3d.js';
           const dy = e.y - P.y;
           if (Math.abs(ddx) < 1.4 * sig && dy * dy + ddz * ddz < e.r * e.r) {
             e.dead = true; run.rings++;
-            P.v += P.st.vbg * 0.55;
+            C.kick(P, P.st.vbg * 0.55);
             run.combo += 5; run.comboT = 1.6; if (run.combo > run.maxCombo) run.maxCombo = run.combo;
             Sfx.ring(); buzz(15); shake = Math.max(shake, 0.25);
             burstAt(e.x, e.y, e.z, 20, 10 * sig, 0.6, 0.55 * sig, '#ffb43a', 0);
@@ -723,7 +773,7 @@ import * as W3 from './world3d.js';
           const dy = e.y - P.y;
           if (ddx * ddx + dy * dy + ddz * ddz < (3.4 * sig) * (3.4 * sig)) {
             e.dead = true; run.balloons++;
-            P.p = Math.max(P.p, 0.75); P.v += P.st.vbg * 0.3;
+            C.kick(P, P.st.vbg * 0.3, 0, 0.6);
             const v = Math.round(BIOMES[bi].rate * 25 * sig * incomeNow);
             addCoins(v, 'pick');
             Sfx.balloon(); buzz(15);
@@ -736,7 +786,7 @@ import * as W3 from './world3d.js';
           const dy = e.y - P.y;
           if (ddx * ddx + dy * dy + ddz * ddz < (2.2 * sig) * (2.2 * sig)) {
             e.dead = true; run.birds++;
-            P.v *= 0.72; P.p -= 0.25;
+            P.v *= 0.72; C.kick(P, 0, -0.2);
             Sfx.hit(); buzz(20); shake = Math.max(shake, 0.4);
             burstAt(e.x, e.y, e.z, 12, 6 * sig, 0.9, 0.5 * sig, e.c, -3 * sig);
             floatText(W * 0.5, H * 0.4, 'OUCH!', '#ff6b6b', 24, 0.7);
@@ -891,7 +941,7 @@ import * as W3 from './world3d.js';
     // trajectory preview with the real physics, projected from 3D
     if (aim.power > 0.05) {
       const ap = aimPos();
-      const Q = { x: ap.x, y: ap.y, z: ap.z, v: P.st.vbg * C.slingPower(S.lv.sling) * aim.power, p: LAUNCH_PITCH, h: aim.yaw, fuel: P.st.fuel, rocket: 0, rocketOn: false, ground: false, water: false, st: P.st, rk: P.rk };
+      const Q = { x: ap.x, y: ap.y, z: ap.z, v: P.st.vbg * C.slingPower(S.lv.sling) * aim.power, p: LAUNCH_PITCH, gam: LAUNCH_PITCH, a: 0, h: aim.yaw, fuel: P.st.fuel, rocket: 0, rocketOn: false, ground: false, water: false, st: P.st, rk: P.rk };
       ctx.fillStyle = '#ffffff';
       for (let i = 0; i < 30; i++) {
         for (let k = 0; k < 4; k++) C.stepPlane(Q, 0, 1 / 60, 0, 0);
@@ -920,12 +970,10 @@ import * as W3 from './world3d.js';
       px = ap.x; py = ap.y + (state === 'hangar' ? Math.sin(t * 2) * 0.02 * planeLen() : 0); pz = ap.z;
       pitch = state === 'aim' ? LAUNCH_PITCH * aim.power : 0.05; heading = state === 'aim' ? aim.yaw : 0; bank = 0;
     }
-    const crashed = (state === 'ending' || state === 'result') && run && run.end === 'crash';
-    if (state === 'ending' && crashed) bank += run.endT * 9;
     W3.frame({
       mode: state === 'result' ? 'ending' : state, t, dt, P, sig, len: planeLen(), px, py, pz, pitch, heading, bank,
       engineOn: state === 'fly' && P.fuel > 0, rocketOn: state === 'fly' && P.rocketOn,
-      showPlane: !(crashed && (state === 'result' || run.endT > 0.12)),
+      showPlane: true, camPitch: state === 'fly' ? lerp(prev.gam, P.gam, simAcc / HSTEP) : 0,
       ents, parts, trail, trailN, trailHead, trailStyle: trailStyle(), best: S.best, shake,
       aimYaw: state === 'aim' ? aim.yaw : 0, camX: W3.cameraX(), snap: snapCam,
     });
@@ -961,8 +1009,7 @@ import * as W3 from './world3d.js';
       for (let i = 0; i < ents.length; i++) { const e = ents[i]; if (e.k === 'bird' && !e.dead) { e.y = e.y0 + Math.sin(gameT * 2 + e.ph) * 2 * sig; e.x -= 3 * sig * dt; } }
     } else if (state === 'ending') {
       run.endT += dt;
-      if (run.end === 'land' && P.v > 0.3) { P.v *= 0.9; P.x += P.v * Math.cos(P.h) * dt; P.z += P.v * Math.sin(P.h) * dt; }
-      if (run.endT > 1.3) finishRun();
+      updateWreck(dt);
     }
     if (state !== 'paused') {
       updateParticles(dt);
