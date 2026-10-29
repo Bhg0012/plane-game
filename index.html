@@ -1,0 +1,69 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<meta name="theme-color" content="#5fb4f5">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Sky Fling">
+<link rel="manifest" href="manifest.json">
+<link rel="icon" href="icon-192.png">
+<link rel="apple-touch-icon" href="icon-192.png">
+<title>Sky Fling</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div id="app">
+  <canvas id="cv"></canvas>
+
+  <div id="hangar" class="ui">
+    <div class="topbar">
+      <div class="pill coin"><i class="ico-coin"></i><span id="coins">0</span></div>
+      <div class="pill gem"><i class="ico-gem"></i><span id="gems">0</span></div>
+      <button id="btn-settings" class="round" aria-label="Settings">&#9881;</button>
+    </div>
+    <div id="banner"><span id="plane-name">Cardboard Plane</span><small id="best-txt"></small></div>
+
+    <div class="side left">
+      <button id="btn-shop" class="side-btn"><span class="emo">&#128745;&#65039;</span><b>Hangar</b></button>
+      <button id="btn-missions" class="side-btn"><span class="emo">&#128203;</span><b>Missions</b><em id="mission-badge" class="badge hidden">!</em></button>
+      <button id="btn-free" class="side-btn"><span class="emo"><i class="ico-gem big"></i></span><b id="free-txt">FREE</b></button>
+    </div>
+    <div class="side right">
+      <button id="btn-chest" class="side-btn"><span class="emo">&#127873;</span><b id="chest-txt">OPEN</b></button>
+      <button id="btn-rocket" class="side-btn rocket"><span class="emo">&#128640;</span><b id="rocket-txt">UNLOCK</b></button>
+    </div>
+
+    <div id="tap">TAP TO FLY</div>
+
+    <div class="cards">
+      <button class="card c-sling" data-k="sling">
+        <div class="card-h"><span>SLINGSHOT</span><em class="lvl">1</em></div>
+        <div class="card-img"><canvas width="160" height="110"></canvas><span class="card-stat"></span></div>
+        <div class="pips"><i></i><i></i><i></i><i></i><i></i></div>
+        <div class="price"><span>UPGRADE</span><b><i class="ico-coin"></i><span class="cost">0</span></b></div>
+      </button>
+      <button class="card c-plane" data-k="plane">
+        <div class="card-h"><span>PLANE</span><em class="lvl">1</em></div>
+        <div class="card-img"><canvas width="160" height="110"></canvas><span class="card-stat"></span></div>
+        <div class="pips"><i></i><i></i><i></i><i></i><i></i></div>
+        <div class="price"><span>UPGRADE</span><b><i class="ico-coin"></i><span class="cost">0</span></b></div>
+      </button>
+      <button class="card c-income" data-k="income">
+        <div class="card-h"><span>INCOME</span><em class="lvl">1</em></div>
+        <div class="card-img"><canvas width="160" height="110"></canvas><span class="card-stat"></span></div>
+        <div class="pips"><i></i><i></i><i></i><i></i><i></i></div>
+        <div class="price"><span>UPGRADE</span><b><i class="ico-coin"></i><span class="cost">0</span></b></div>
+      </button>
+    </div>
+  </div>
+
+  <div id="modal" class="modal hidden"><div id="panel" class="panel"></div></div>
+  <div id="toast"></div>
+</div>
+<script src="core.js"></script>
+<script src="game.js"></script>
+</body>
+</html>
