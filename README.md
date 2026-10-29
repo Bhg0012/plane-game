@@ -15,11 +15,12 @@ Local test: `python3 -m http.server` in this folder, then visit `http://localhos
 - **Launch:** pull down anywhere to stretch the slingshot, slide left/right to aim, release.
 - **Fly:** floating joystick - pull down to climb, push up to dive (flight-stick style; flip it in Settings), left/right to bank and turn (or "Hold to climb" in settings). Keyboard: arrows/WASD follow the same setting (Down = climb by default), Space = launch/boost.
 - **Engine** burns fuel automatically; then you glide. Dive to gain speed, climb to trade it for height.
-- **Pickups:** coins (chain them for a combo of up to +200%), boost rings, fuel cans, balloons (bounce + coin burst), gems, updrafts.
+- **Pickups:** coins (chain them for a combo of up to +200%), boost rings, fuel cans, rare purple rocket-fuel canisters (refill most of your boost), balloons (bounce + coin burst), gems, updrafts.
 - **Hazards:** trees, boulders, silos, wind turbines (time the spinning blades), cacti, rock arches (fly through for coins), pillars, pines, icebergs, towers, airships, ships, volcanic spires, floating mines, satellites. Some are giants that tower into cruising altitude. Hitting one or nose-diving into the ground = crash; skim past one for a NEAR MISS bonus, fly through an arch to THREAD IT. Birds/drones just slow you down.
 - **Skim bonus:** fly fast just above the ground for extra coins. Land smoothly for +10%.
 - **Upgrades:** Slingshot (launch power), Plane (parts bolt on as you level: the Cardboard Plane starts as a bare body + wings, then gets a tail, cockpit & wheels, a propeller engine, fuel tanks; every 5 levels it evolves - 14 planes from Cardboard to Space Shuttle - and keeps gaining add-ons), Income (coin multiplier), Rocket booster (unlock with 1 gem, hold BOOST in flight). Press and hold a card to buy repeatedly.
 - **11 zones** by distance: Meadow -> Farmland -> Desert -> Canyon -> Snow Peaks -> Metro City -> Ocean -> Volcano Isle -> Stormfront -> Stratosphere -> Orbit. Each pays more per meter and gives gems the first time you reach it.
+- **Swoops:** dive and level out to turn the height you lost into a speed burst (bigger the further you dropped, double if you pull out low).
 - **Juice:** slow-motion on near misses / arch threads / sonic booms, SONIC BOOM bonus when you break a speed barrier, GOLD RUSH at a x25 combo (double coins + coin magnet + gold trail for 6s), ring chains with a PERFECT CHAIN bonus, and a see-through ghost replaying your best run.
 - **Extras:** 7-day login streak, timed chest (3h), 3 free gems a day, 3 daily missions, paint jobs and trails (gems), records flag, x2 results for 3 gems.
 
