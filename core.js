@@ -127,9 +127,9 @@
     const gTarget = -0.07 - 1.3 * Math.max(0, 0.95 - vn);
     const needL = g * Math.cos(gam) + v * 0.9 * (gTarget - gam);
     const need = (needL / (g * Math.max(vn2 * air, 0.04))) * (ATRIM + A0) - A0;
-    let aT = Math.min(ASTALL * 0.9, Math.max(-0.12, need)) + u * 0.24; // pitch authority: firm but not twitchy
+    let aT = Math.min(ASTALL * 0.9, Math.max(-0.12, need)) + u * 0.155; // pitch authority: gentle, full stick is a firm pull
     if (aT > 0.55) aT = 0.55; else if (aT < -0.35) aT = -0.35;
-    const a = (P.a || 0) + (aT - (P.a || 0)) * Math.min(1, dt * 3); // eased, so pitch changes feel weighty
+    const a = (P.a || 0) + (aT - (P.a || 0)) * Math.min(1, dt * 2.2); // eased, so pitch changes feel weighty
     P.a = a;
 
     let L = g * vn2 * liftCoef(a) * air;
