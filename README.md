@@ -13,7 +13,7 @@ Local test: `python3 -m http.server` in this folder, then visit `http://localhos
 
 ## How it works
 - **Launch:** pull down anywhere to stretch the slingshot, slide left/right to aim, release.
-- **Fly:** floating joystick - pull down to climb, push up to dive (flight-stick style; flip it in Settings), left/right to bank and turn (or "Hold to climb" in settings). Keyboard: arrows/WASD, Space = launch/boost.
+- **Fly:** floating joystick - pull down to climb, push up to dive (flight-stick style; flip it in Settings), left/right to bank and turn (or "Hold to climb" in settings). Keyboard: arrows/WASD follow the same setting (Down = climb by default), Space = launch/boost.
 - **Engine** burns fuel automatically; then you glide. Dive to gain speed, climb to trade it for height.
 - **Pickups:** coins (chain them for a combo of up to +200%), boost rings, fuel cans, balloons (bounce + coin burst), gems, updrafts.
 - **Hazards:** trees, boulders, silos, wind turbines (time the spinning blades), cacti, rock arches (fly through for coins), pillars, pines, icebergs, towers, airships, ships, volcanic spires, floating mines, satellites. Some are giants that tower into cruising altitude. Hitting one or nose-diving into the ground = crash; skim past one for a NEAR MISS bonus, fly through an arch to THREAD IT. Birds/drones just slow you down.
