@@ -121,6 +121,7 @@ export function init(canvas) {
   pools.gem = new Pool(new THREE.OctahedronGeometry(1), lam('#3fb2ff', { emissive: '#0b3a80' }), 30);
   pools.rfuel = new Pool(new THREE.CylinderGeometry(0.55, 0.55, 1.7, 12), lam('#a24bff', { emissive: '#4a1080' }), 20);
   pools.rfuelTip = new Pool(new THREE.ConeGeometry(0.55, 0.7, 12), lam('#ffb43a', { emissive: '#7a3a00' }), 20);
+  pools.debris = new Pool(new THREE.BoxGeometry(1, 1, 1), lam('#fff'), 40, true);
   pools.fuel = new Pool(new THREE.BoxGeometry(1.2, 1.6, 0.8), lam('#e63946', { emissive: '#400' }), 30);
   const ringG = new THREE.TorusGeometry(1, 0.1, 8, 28); ringG.rotateY(Math.PI / 2);
   pools.ring = new Pool(ringG, lam('#ff9a1a', { emissive: '#7a3a00' }), 40);
@@ -439,6 +440,7 @@ export function frame(v) {
     pools.hill.add(h.x, 0, h.z, h.w, h.h, h.w, h.x * 0.01, hillC);
     if (h.h > 65 * s && !BIOMES[bi].water) pools.hill.add(h.x, h.h * 0.72, h.z, h.w * 0.28, h.h * 0.28, h.w * 0.28, h.x * 0.01, colorOf(bi === 7 ? '#ff6a2a' : '#f4f8ff'));
   }
+  if (v.debris) for (const d of v.debris) pools.debris.add(d.x, d.y, d.z, d.sx, d.sy, d.sz, d.ry, colorOf(d.c), d.rx, d.rz);
   for (const k in pools) pools[k].end();
 
   // ---- particles

@@ -11,7 +11,7 @@ function fly(lv) {
     P.rocketOn = P.fuel <= 0 && P.rocket > 0;
     const u = Math.max(-1, Math.min(1, (target - P.gam) * 2));
     const ox = P.x;
-    if (C.stepPlane(P, u, dt, 0) === 'smash') break;
+    C.stepPlane(P, u, dt, 0);
     coins += (P.x - ox) * C.BIOMES[C.biomeIndex(P.x)].rate;
     maxY = Math.max(maxY, P.y);
     t += dt;

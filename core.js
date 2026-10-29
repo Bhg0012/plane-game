@@ -159,22 +159,25 @@
     if (h) P.z = (P.z || 0) + hv * Math.sin(h) * dt;
     P.y += (v * Math.sin(gam) + (lift || 0) * st.sig) * dt;
 
+    // Ground contact. P.gy is how high the plane's centre sits when its lowest part (wheels, belly,
+    // wingtip, nose...) touches the ground; the game works it out from the plane's attitude.
+    // On first touch we report the impact and let the game decide: landing, scrape, bounce or crash.
     let ev = null;
+    const was = P.ground, gy = P.gy || 0;
     P.ground = false;
-    if (P.y <= 0) {
-      P.y = 0;
+    if (P.y <= gy) {
+      P.y = gy;
       P.ground = true;
       if (gam < 0) {
-        const vy = -v * Math.sin(gam); // impact speed straight down
-        if (gam < -0.55 && vy > 1.5 * st.vbg) ev = 'smash'; // nose-first into the ground
-        else if (gam < -0.2 && v > st.vbg) { // skip off the ground
-          gam = -gam * 0.45;
-          v *= 0.8 - Math.min(0.3, -gam * 0.2);
-          ev = 'bounce';
-        } else gam = 0;
+        if (!was) { P.impactVy = -v * Math.sin(gam); P.impactV = v; P.impactGam = gam; ev = 'touch'; }
+        gam = 0;
       }
     }
-    if (P.ground && gam <= 0) { v -= (P.water ? 1.6 : 0.45) * g * dt + v * 0.12 * dt; if (v < 0.3) v = 0.3; }
+    if (P.ground && gam <= 0) {
+      const mu = P.water ? 1.6 : P.fric === undefined ? 0.45 : P.fric; // rolling on wheels is low, scraping is high
+      v -= mu * g * dt + v * (mu < 0.3 ? 0.03 : 0.12) * dt;
+      if (v < 0.3) v = 0.3;
+    }
     P.v = v; P.gam = gam;
     P.p = gam + (P.ground ? 0 : a); // drawn nose
     return ev;
