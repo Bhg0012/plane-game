@@ -7,6 +7,7 @@ const { MODELS, BIOMES } = C;
 
 let renderer, scene, camera, hemi, sun;
 let sky, skyCols, ground, groundTex, shadow, sunDisc, sunGlow;
+let ghost = null;
 let planeGroup = null, prop = null, jetFlame = null, rocketFlame = null;
 let site, bandA, bandB, bestStripe, bestPole, bestFlag;
 let particles, pPos, pCol, pSize, pUniforms;
@@ -275,6 +276,13 @@ export function setPlane(model, paint, len, parts) {
   g.scale.setScalar(len);
   planeGroup = g;
   scene.add(g);
+  // ghost of your best run: same shape, see-through
+  if (ghost) scene.remove(ghost);
+  ghost = g.clone();
+  const gm = new THREE.MeshBasicMaterial({ color: '#bfe6ff', transparent: true, opacity: 0.35, depthWrite: false });
+  ghost.traverse((o) => { if (o.isMesh) o.material = gm; });
+  ghost.visible = false;
+  scene.add(ghost);
 }
 
 // ----------------------------------------------------------------- scenery recycling
@@ -330,6 +338,10 @@ export function frame(v) {
 
   // ---- plane
   planeGroup.visible = v.showPlane;
+  if (ghost) {
+    ghost.visible = !!v.ghost;
+    if (v.ghost) { ghost.position.set(v.ghost.x, v.ghost.y, v.ghost.z); ghost.rotation.set(0, -v.ghost.h, v.ghost.p, 'YZX'); }
+  }
   planeGroup.position.set(v.px, v.py, v.pz);
   planeGroup.rotation.set(v.bank, -v.heading, v.pitch, 'YZX');
   if (prop) prop.rotation.x = v.t * (v.mode === 'hangar' ? 6 : 40);
@@ -602,7 +614,7 @@ function updateCamera(v) {
     const ch = Math.cos(camHeading), sh = Math.sin(camHeading), cc = Math.cos(cp);
     px = tx - ch * cc * dist; py = ty - Math.sin(cp) * dist + up; pz = tz - sh * cc * dist;
     lx = tx + ch * L * 3; ly = ty + Math.sin(cp) * L * 3 + 0.25 * L; lz = tz + sh * L * 3;
-    fov = 62 + Math.min(20, Math.max(0, (vn - 1.2) * 7));
+    fov = 62 + Math.min(20, Math.max(0, (vn - 1.2) * 7)) + (v.fovKick || 0);
     k = v.mode === 'fly' ? 10 : 2.5;
   }
   if (!camReady || v.snap) { camPos.set(px, py, pz); camLook.set(lx, ly, lz); camReady = true; camHeading = v.heading; }

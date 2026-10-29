@@ -1,6 +1,6 @@
 // Network-first service worker: always fetches the newest files (revalidating past the browser's
 // HTTP cache), and only falls back to the cached copy when offline.
-const CACHE = 'skyfling-v8';
+const CACHE = 'skyfling-v9';
 const FILES = ['./', 'index.html', 'style.css', 'core.js', 'sync-config.js', 'game.js', 'world3d.js', 'vendor/three.module.min.js', 'manifest.json', 'icon-192.png', 'icon-512.png'];
 self.addEventListener('install', (e) => {
   e.waitUntil(caches.open(CACHE).then((c) => c.addAll(FILES.map((f) => new Request(f, { cache: 'reload' })))).then(() => self.skipWaiting()));
