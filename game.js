@@ -60,7 +60,7 @@ import * as W3 from './world3d.js';
   ];
 
   // ===================================================================== save
-  const VERSION = '1.9';
+  const VERSION = '1.10';
   const KEY = 'skyfling.save.v1';
   function defaults() {
     return {
@@ -70,7 +70,7 @@ import * as W3 from './world3d.js';
       chestAt: 0, free: { day: '', used: 0, next: 0 },
       missions: { day: '', list: [] },
       paints: [0], paint: 0, trails: [0], trail: 0,
-      set: { sound: true, haptics: true, control: 'drag', sens: 1, perf: false, invert: true },
+      set: { sound: true, haptics: true, control: 'drag', sens: 1, perf: false, invert: true, pitch: 1 },
       tut: 0, savedAt: 0, streak: { day: '', n: 0 },
       sync: { code: '', asked: false, last: 0 },
       stats: { earned: 0, rings: 0, crashes: 0, playMs: 0 },
@@ -851,10 +851,10 @@ import * as W3 from './world3d.js';
       // flight-stick style by default: pull down (toward you) to climb
       const dx = (stick.x - stick.ax) / R, dy = (S.set.invert ? stick.y - stick.ay : stick.ay - stick.y) / R;
       // soft response curve: small moves give fine control, full deflection still turns hard
-      const curve = (d) => (Math.abs(d) < 0.08 ? 0 : Math.sign(d) * Math.pow(Math.min(1, (Math.abs(d) - 0.08) / 0.92), 1.6));
-      ux = curve(dx);
+      const curve = (d, k) => (Math.abs(d) < 0.08 ? 0 : Math.sign(d) * Math.pow(Math.min(1, (Math.abs(d) - 0.08) / 0.92), k));
+      ux = curve(dx, 1.6);
       if (S.set.control === 'hold') u = 1;
-      else u = curve(dy);
+      else u = curve(dy, 2.1); // extra-soft center for pitch: small moves = tiny corrections
     }
     // keys follow the same "pull down to climb" setting as the stick, and ramp in smoothly
     let ku = keyUp ? 1 : keyDown ? -1 : 0;
@@ -864,7 +864,7 @@ import * as W3 from './world3d.js';
     keyAxis.u += (ku - keyAxis.u) * kr; keyAxis.x += (kx - keyAxis.x) * kr;
     if (ku || Math.abs(keyAxis.u) > 0.02) u = keyAxis.u;
     if (kx || Math.abs(keyAxis.x) > 0.02) ux = keyAxis.x;
-    input.u = u; input.ux = ux;
+    input.u = u * S.set.pitch; input.ux = ux;
     return input;
   }
 
@@ -1719,6 +1719,7 @@ import * as W3 from './world3d.js';
     h += '<div class="set-row">Vibration' + T('haptics') + '</div>';
     h += '<div class="set-row">Controls<div class="seg"><button data-c="drag" class="' + (S.set.control === 'drag' ? 'on' : '') + '">Drag stick</button><button data-c="hold" class="' + (S.set.control === 'hold' ? 'on' : '') + '">Hold to climb</button></div></div>';
     h += '<div class="set-row"><span>Pull down to climb<br><small style="font-weight:600;opacity:.7">Like a real flight stick. Off = push up to climb</small></span>' + T('invert') + '</div>';
+    h += '<div class="set-row">Up/down sensitivity<span style="display:flex;align-items:center;gap:6px"><input type="range" min="0.4" max="1.5" step="0.1" value="' + S.set.pitch + '" id="pitchs"><b id="pitchv" style="width:34px">' + S.set.pitch.toFixed(1) + 'x</b></span></div>';
     h += '<div class="set-row">Stick size<input type="range" min="0.6" max="1.6" step="0.1" value="' + S.set.sens + '" id="sens"></div>';
     h += '<div class="set-row"><span>Performance mode<br><small style="font-weight:600;opacity:.7">Lower resolution, fewer particles</small></span>' + T('perf') + '</div>';
     h += '<h3>Cloud save</h3>';
@@ -1745,6 +1746,7 @@ import * as W3 from './world3d.js';
       }));
       p.querySelectorAll('[data-c]').forEach((b) => b.addEventListener('click', () => { S.set.control = b.dataset.c; save(); showSettings(); }));
       p.querySelector('#sens').addEventListener('input', (e) => { S.set.sens = +e.target.value; save(); });
+      p.querySelector('#pitchs').addEventListener('input', (e) => { S.set.pitch = +e.target.value; p.querySelector('#pitchv').textContent = S.set.pitch.toFixed(1) + 'x'; save(); });
       p.querySelector('#exp').addEventListener('click', () => {
         writeNow();
         const code = btoa(unescape(encodeURIComponent(JSON.stringify(S))));
