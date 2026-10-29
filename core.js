@@ -12,15 +12,21 @@
     { name: 'Wooden Biplane', body: '#b5653a', wing: '#e3b04b', prop: true, len: 3.5, bi: true },
     { name: 'Crop Duster', body: '#f2c230', wing: '#d99a1e', prop: true, len: 3.7, bi: true },
     { name: 'Stunt Racer', body: '#e94b3c', wing: '#ffffff', prop: true, len: 3.8, bi: false },
-    { name: 'Warbird', body: '#6b7d4f', wing: '#56663f', prop: true, len: 4.1, bi: false },
+    { name: 'Warbird', body: '#6b7d4f', wing: '#56663f', prop: true, len: 4.1, bi: false, mil: true },
     { name: 'Seaplane', body: '#ffffff', wing: '#2f7bd9', prop: true, len: 4.3, bi: false, floats: true },
-    { name: 'Turboprop', body: '#f4f4f4', wing: '#c33', prop: true, len: 4.6, bi: false },
-    { name: 'Business Jet', body: '#fafafa', wing: '#1d3557', prop: false, len: 5.0, bi: false },
-    { name: 'Fighter Jet', body: '#8d99ae', wing: '#5c677d', prop: false, len: 5.2, bi: false, delta: true },
-    { name: 'Stealth Wing', body: '#2b2d42', wing: '#1a1b29', prop: false, len: 5.2, bi: false, delta: true },
-    { name: 'Rocket Plane', body: '#ff7b00', wing: '#2b2d42', prop: false, len: 5.6, bi: false, delta: true },
-    { name: 'Space Shuttle', body: '#ffffff', wing: '#222', prop: false, len: 6.2, bi: false, delta: true },
+    // tactical jets: original designs inspired by real aircraft types
+    { name: 'Gunship', body: '#7d8a7a', wing: '#68756a', prop: false, len: 4.6, style: 'gunship', mil: true, tip: [0.0, 0.62] },
+    { name: 'Twin-Tail Fighter', body: '#8d99ae', wing: '#6c7a92', prop: false, len: 5.0, style: 'fighter', delta: true, mil: true, tip: [-0.26, 0.48] },
+    { name: 'Swing-Wing Striker', body: '#a3a99a', wing: '#7f8676', prop: false, len: 5.1, style: 'swing', delta: true, mil: true, tip: [-0.34, 0.5] },
+    { name: 'Delta Interceptor', body: '#c9ced6', wing: '#8a93a0', prop: false, len: 5.2, style: 'deltaJet', delta: true, mil: true, tip: [-0.29, 0.45] },
+    { name: 'Stealth Fighter', body: '#3a3f4a', wing: '#2c3039', prop: false, len: 5.2, style: 'stealth', delta: true, tip: [-0.32, 0.45] },
+    { name: 'Stealth Bomber', body: '#2b2f38', wing: '#23262e', prop: false, len: 5.6, style: 'flyingwing', delta: true, tip: [-0.22, 0.8] },
+    { name: 'Hypersonic Spyplane', body: '#17191e', wing: '#1c1f26', prop: false, len: 6.0, style: 'spy', delta: true, tip: [-0.43, 0.4] },
+    { name: 'Space Shuttle', body: '#ffffff', wing: '#222', prop: false, len: 6.2, bi: false, delta: true, style: 'shuttle', tip: [-0.29, 0.45] },
   ];
+  // Slingshot looks evolve every 5 levels.
+  const SLING_TIERS = ['Twig Fork', 'Rope Sling', 'Iron Sling', 'Spiked Bastion', 'Steam Catapult', 'Royal Launcher', 'Crystal Sling', 'Arcane Cannon'];
+  function slingTier(lvl) { return Math.min(SLING_TIERS.length - 1, Math.floor((lvl - 1) / 5)); }
 
   // ---- Biomes by distance. Ground is flat (y = 0); obstacles give height.
   const BIOMES = [
@@ -190,7 +196,7 @@
     if (P.gam > 1.5) P.gam = 1.5; else if (P.gam < -1.5) P.gam = -1.5;
   }
 
-  const api = { G, MODELS, BIOMES, biomeIndex, modelIndex, planeStats, planeParts, nextPartName, slingPower, incomeMult, rocketStats, COST, stepPlane, kick };
+  const api = { G, MODELS, BIOMES, SLING_TIERS, slingTier, biomeIndex, modelIndex, planeStats, planeParts, nextPartName, slingPower, incomeMult, rocketStats, COST, stepPlane, kick };
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
   else root.Core = api;
 })(typeof window !== 'undefined' ? window : globalThis);

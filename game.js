@@ -60,7 +60,7 @@ import * as W3 from './world3d.js';
   ];
 
   // ===================================================================== save
-  const VERSION = '1.14';
+  const VERSION = '1.15';
   const KEY = 'skyfling.save.v1';
   function defaults() {
     return {
@@ -301,6 +301,12 @@ import * as W3 from './world3d.js';
   function planePath(c, M, body, wing, t, engineOn, rocketOn, parts) {
     parts = parts || { tail: true, cockpit: true, engine: true };
     c.lineJoin = 'round'; c.lineWidth = 0.028; c.strokeStyle = OUT;
+    if (M.style === 'flyingwing') { // side view of a flying wing: a thin, humped blade
+      c.fillStyle = wing; c.beginPath(); c.moveTo(0.42, 0.02); c.quadraticCurveTo(0.1, -0.06, -0.45, 0.02); c.lineTo(-0.38, 0.06); c.lineTo(0.3, 0.06); c.closePath(); c.fill(); c.stroke();
+      c.fillStyle = body; c.beginPath(); c.moveTo(0.32, 0.0); c.quadraticCurveTo(0.1, -0.13, -0.15, -0.02); c.lineTo(0.3, 0.02); c.closePath(); c.fill(); c.stroke();
+      if (parts.cockpit) { c.fillStyle = '#d9b25a'; c.beginPath(); c.ellipse(0.2, -0.05, 0.05, 0.02, -0.3, 0, 6.283); c.fill(); }
+      return;
+    }
     const jet = !M.prop;
     // far wing (behind fuselage)
     c.fillStyle = wing; c.beginPath();
@@ -402,7 +408,7 @@ import * as W3 from './world3d.js';
     const ceil = P.st.ceil / sig;
     const zc = P.z + Math.sin(P.h) * Math.max(0, x0 - P.x);
     const zr = () => zc + (r() - 0.5) * 2 * SPREAD * sig;
-    const val = Math.max(1, Math.round(4 * sig * b.rate * incomeNow));
+    const val = Math.max(1, Math.round(10 * sig * b.rate * incomeNow)); // fewer coins, each worth more
     const fresh = [], obst = [];
     if (ci >= 1) {
       const tries = 4 + Math.floor(b.density * 10);
@@ -414,11 +420,15 @@ import * as W3 from './world3d.js';
         if (o.t === 'arch') makeCoinGroup(r, o.x - 12 * sig, o.z, o.h * 0.45, val, fresh); // thread the needle
       }
     }
-    const groups = ci === 0 ? 1 : 2 + (r() < 0.5 ? 1 : 0);
+    const groups = ci === 0 ? 1 : r() < 0.65 ? 1 : 0;
     for (let g = 0; g < groups; g++) {
       const yb = (2.5 + Math.pow(r(), 1.5) * ceil * 0.8) * sig;
       if (ci === 0) makeCoinGroup(r, x0 + 35 * sig, 0, 9 * sig, val, fresh);
       else makeCoinGroup(r, x0 + r() * CH * 0.7 * sig, zc + (r() - 0.5) * SPREAD * 1.2 * sig, yb, val, fresh);
+    }
+    if (ci >= 2 && r() < 0.11) { // rare power-up ring
+      const kinds = ['shield', 'magnet', 'turbo', 'feather', 'x2'];
+      fresh.push({ k: 'pring', pw: kinds[Math.floor(r() * kinds.length)], x: x0 + r() * CH * sig, y: (9 + r() * ceil * 0.5) * sig, z: zc + (r() - 0.5) * SPREAD * 0.8 * sig, r: 5.5 * sig, dead: false });
     }
     if (ci >= 2 && r() < 0.16) { // ring chain: fly through them all for a big bonus
       const n = 3 + Math.floor(r() * 3), bx = x0 + r() * CH * 0.4 * sig, by = (10 + r() * ceil * 0.5) * sig, bz = zc + (r() - 0.5) * SPREAD * sig;
@@ -637,12 +647,14 @@ import * as W3 from './world3d.js';
       { x: 0.52, y: 0, z: 0, k: 'nose' }, { x: 0.05, y: -0.1, z: 0, k: 'belly' }, { x: -0.48, y: -0.04, z: 0, k: 'tail' },
       { x: 0.05, y: 0.11, z: 0, k: 'top' },
     ];
-    if (M.delta) pts.push({ x: -0.29, y: -0.03, z: 0.45, k: 'wing' }, { x: -0.29, y: -0.03, z: -0.45, k: 'wing' });
+    if (M.tip) pts.push({ x: M.tip[0], y: -0.03, z: M.tip[1], k: 'wing' }, { x: M.tip[0], y: -0.03, z: -M.tip[1], k: 'wing' });
+    else if (M.delta) pts.push({ x: -0.29, y: -0.03, z: 0.45, k: 'wing' }, { x: -0.29, y: -0.03, z: -0.45, k: 'wing' });
     else if (jet) pts.push({ x: -0.14, y: -0.03, z: 0.545, k: 'wing' }, { x: -0.14, y: -0.03, z: -0.545, k: 'wing' });
     else { const s = (M.longWing ? 1.45 : 1.15) / 2; pts.push({ x: 0.06, y: -0.03, z: s, k: 'wing' }, { x: 0.06, y: -0.03, z: -s, k: 'wing' }); }
     if (parts.tail) pts.push({ x: -0.45, y: 0.23, z: 0, k: 'top' });
     if (M.floats) pts.push({ x: 0.3, y: -0.27, z: 0.2, k: 'gear' }, { x: 0.3, y: -0.27, z: -0.2, k: 'gear' }, { x: -0.2, y: -0.27, z: 0.2, k: 'gear' }, { x: -0.2, y: -0.27, z: -0.2, k: 'gear' });
-    else if (parts.wheels) pts.push({ x: 0.12, y: -0.225, z: 0.14, k: 'gear' }, { x: 0.12, y: -0.225, z: -0.14, k: 'gear' });
+    else if (parts.wheels && !M.style) pts.push({ x: 0.12, y: -0.225, z: 0.14, k: 'gear' }, { x: 0.12, y: -0.225, z: -0.14, k: 'gear' });
+    else if (parts.wheels) pts.push({ x: 0.1, y: -0.12, z: 0.12, k: 'gear' }, { x: 0.1, y: -0.12, z: -0.12, k: 'gear' }, { x: 0.35, y: -0.12, z: 0, k: 'gear' }); // jets: gear under the belly
     CPTS = pts;
   }
   // Which part of the plane is lowest for a given attitude, and how high the centre sits when it touches.
@@ -691,7 +703,7 @@ import * as W3 from './world3d.js';
     prev.x = P.x; prev.y = P.y; prev.z = P.z; prev.p = P.p; prev.h = P.h; prev.gam = P.gam; simAcc = 0;
     run = {
       dist: 0, coins: 0, distCoins: 0, pickCoins: 0, skimCoins: 0, gems: 0, picks: 0, rings: 0, balloons: 0, birds: 0,
-      combo: 0, comboT: 0, maxCombo: 0, nears: 0, swoops: 0, landQ: '', shattered: false, idleT: 0, diving: false, diveTop: 0, rush: 0, nextRush: 25, booms: 0, boomArmed: false, chainId: -1, chainN: 0, path: [], pathT: 0, skimT: 0, skimShow: 0, maxAlt: 0, t: 0, record: false, end: '', endT: 0,
+      combo: 0, comboT: 0, maxCombo: 0, nears: 0, swoops: 0, powerups: 0, pw: { shield: 0, magnet: 0, turbo: 0, feather: 0, x2: 0 }, landQ: '', shattered: false, idleT: 0, diving: false, diveTop: 0, rush: 0, nextRush: 25, booms: 0, boomArmed: false, chainId: -1, chainN: 0, path: [], pathT: 0, skimT: 0, skimShow: 0, maxAlt: 0, t: 0, record: false, end: '', endT: 0,
       bestAtStart: S.best, newBiomes: [], fuelFlash: 0, rocketFlash: 0,
     };
     trailN = 0; fovKick = 0; timeScale = 1; slowHold = 0; coast = 1; coasting = false;
@@ -995,6 +1007,7 @@ import * as W3 from './world3d.js';
     run.t += dt;
     if (run.comboT > 0) { run.comboT -= dt; if (run.comboT <= 0) run.combo = 0; }
     if (run.rush > 0) run.rush -= dt;
+    for (const k in run.pw) if (run.pw[k] > 0) run.pw[k] -= dt;
     if (P.rocketOn) fovKick = Math.max(fovKick, 7);
     // sonic boom when you break through a speed barrier
     const vn = P.v / P.st.vbg;
@@ -1042,6 +1055,8 @@ import * as W3 from './world3d.js';
     P.water = !!b.water && !onFloats; // seaplanes skim the water on their floats
     P.gy = ct.gy;
     P.fric = ct.k === 'gear' ? (onFloats && b.water ? 0.14 : 0.08) : 0.75;
+    if (run.pw.turbo > 0) C.kick(P, P.st.g * 2.4 * HSTEP);
+    if (run.pw.feather > 0) lift = Math.max(lift, 7);
     const ev = C.stepPlane(P, u, HSTEP, lift, ux);
     if (ev === 'touch' && onTouch(b, ct) === 'crash') return;
     if (P.ground) {
@@ -1099,6 +1114,20 @@ import * as W3 from './world3d.js';
     }
     // collisions
     const pr = 0.8 * sig, cr = 2.8 * sig, cr2 = cr * cr;
+    // wingtips and nose are hitboxes too (world positions for this step)
+    const Lp = planeLen(), tipR = 0.3 * sig;
+    let nTips = 0;
+    for (let i = 0; i < CPTS.length; i++) {
+      const q = CPTS[i];
+      if (q.k !== 'wing' && q.k !== 'nose') continue;
+      const w = toWorld(q.x, q.y, q.z, P.p, P.h, P.bank, tmpV);
+      TIPS[nTips * 3] = P.x + w.x * Lp; TIPS[nTips * 3 + 1] = P.y + w.y * Lp; TIPS[nTips * 3 + 2] = P.z + w.z * Lp; nTips++;
+    }
+    const hitPlane = (e) => {
+      if (hitObst(e, P.x, P.y, P.z, pr)) return true;
+      for (let k = 0; k < nTips; k++) if (hitObst(e, TIPS[k * 3], TIPS[k * 3 + 1], TIPS[k * 3 + 2], tipR)) return true;
+      return false;
+    };
     for (let i = 0; i < ents.length; i++) {
       const e = ents[i];
       if (e.dead) continue;
@@ -1107,7 +1136,7 @@ import * as W3 from './world3d.js';
       const ddz = e.z - P.z;
       switch (e.k) {
         case 'coin': {
-          if (run.rush > 0 && ddx < 14 * sig && ddx > -4 * sig) { // gold rush magnet
+          if ((run.rush > 0 || run.pw.magnet > 0) && ddx < 16 * sig && ddx > -4 * sig) { // gold rush / magnet power-up
             const k = Math.min(1, HSTEP * 7);
             e.x += (P.x - e.x) * k; e.y += (P.y - e.y) * k; e.z += (P.z - e.z) * k;
           }
@@ -1115,7 +1144,7 @@ import * as W3 from './world3d.js';
           if (ddx * ddx + dy * dy + ddz * ddz < cr2) {
             e.dead = true;
             run.combo++; run.comboT = 1.4; if (run.combo > run.maxCombo) run.maxCombo = run.combo;
-            const v = e.val * (1 + Math.min(run.combo, 40) * 0.05) * (run.rush > 0 ? 2 : 1);
+            const v = e.val * (1 + Math.min(run.combo, 40) * 0.05) * (run.rush > 0 ? 2 : 1) * (run.pw.x2 > 0 ? 2 : 1);
             checkRush();
             run.picks++; addCoins(v, 'pick');
             Sfx.coin(run.combo);
@@ -1139,6 +1168,11 @@ import * as W3 from './world3d.js';
             burstAt(e.x, e.y, e.z, 10, 6 * sig, 0.5, 0.6 * sig, '#ff5050', 0);
             floatText(W * 0.5, H * 0.36, '+FUEL', '#ff7070', 24, 0.9);
           }
+          break;
+        }
+        case 'pring': {
+          const dy = e.y - P.y;
+          if (Math.abs(ddx) < 1.6 * sig && dy * dy + ddz * ddz < e.r * e.r) { e.dead = true; activatePower(e.pw, e); }
           break;
         }
         case 'rfuel': {
@@ -1205,8 +1239,18 @@ import * as W3 from './world3d.js';
             floatText(W * 0.5, H * 0.34, 'THREADED IT! +' + fmt(v), '#7be276', 28, 1.1);
             slowmo(0.3, 0.3);
           }
-          if (P.y - pr - NEAR * sig > e.top) break;
-          if (hitObst(e, P.x, P.y, P.z, pr)) { endFlight('crash'); return; }
+          if (P.y - pr - NEAR * sig - Lp * 0.6 > e.top) break;
+          if (hitPlane(e)) {
+            if (run.pw.shield > 0) { // shield smashes straight through
+              run.pw.shield = 0; e.dead = true; P.v *= 0.85;
+              Sfx.crash(); buzz([30, 20, 30]); shake = Math.max(shake, 0.6); slowmo(0.35, 0.25);
+              burstAt(P.x, P.y, P.z, 30, 12 * sig, 0.9, 0.8 * sig, '#38b6ff', -3 * sig);
+              burstAt(e.x, Math.min(P.y, e.top), e.z, 24, 10 * sig, 1.0, 1.0 * sig, e.col || '#8a8f96', -8 * sig);
+              floatText(W * 0.5, H * 0.36, 'SHIELD SMASH!', '#38b6ff', 30, 1.1);
+              break;
+            }
+            endFlight('crash'); return;
+          }
           if (!e.nm && hitObst(e, P.x, P.y, P.z, pr + NEAR * sig)) {
             e.nm = true; run.nears++;
             const v = Math.round(b.rate * 20 * sig * incomeNow);
@@ -1231,7 +1275,23 @@ import * as W3 from './world3d.js';
     }
   }
   const NEAR = 2.4; // how close counts as a near miss, in plane-scale units
-  const tmpV = { x: 0, y: 0, z: 0 };
+  const tmpV = { x: 0, y: 0, z: 0 }, TIPS = new Float32Array(12);
+  // ---- power-ups from the rare coloured rings
+  const PW = {
+    shield: { name: 'SHIELD', icon: '\u{1F6E1}', col: '#38b6ff', t: 20, msg: 'blocks one crash' },
+    magnet: { name: 'MAGNET', icon: '\u{1F9F2}', col: '#c56bff', t: 10, msg: 'pulls in coins' },
+    turbo: { name: 'TURBO', icon: '\u{1F525}', col: '#ff4a2a', t: 3, msg: 'free thrust!' },
+    feather: { name: 'FEATHER', icon: '\u{1FAB6}', col: '#7be276', t: 7, msg: 'floaty glide' },
+    x2: { name: '2X COINS', icon: '\u{1F4B0}', col: '#ffd23a', t: 10, msg: 'double coins' },
+  };
+  function activatePower(kind, e) {
+    const d = PW[kind];
+    run.pw[kind] = d.t;
+    run.powerups++;
+    Sfx.rush(); buzz([15, 20, 15]); fovKick = Math.max(fovKick, 8); shake = Math.max(shake, 0.2);
+    burstAt(e.x, e.y, e.z, 24, 10 * sig, 0.7, 0.6 * sig, d.col, 0);
+    banner(d.icon + ' ' + d.name + '!', d.msg);
+  }
   // First contact with the ground: was that a landing, a scrape, a skip or a crash?
   function onTouch(b, ct) {
     const vb = P.st.vbg, vy = P.impactVy / vb, bankA = Math.abs(P.bank);
@@ -1247,6 +1307,13 @@ import * as W3 from './world3d.js';
     }
     // anything other than the wheels hit first
     const sev = vy + (ct.k === 'nose' ? 0.6 : 0) + (ct.k === 'top' ? 0.9 : 0) + Math.max(0, bankA - 0.6) * 0.6;
+    if (sev > 1.25 && run.pw.shield > 0) { // shield turns a crash into a big bounce
+      run.pw.shield = 0; P.gam = 0.45; P.v = Math.max(P.v * 0.8, vb * 0.8); P.ground = false; P.y += 0.05 * sig; P.bank = 0;
+      Sfx.bounce(); buzz([30, 20, 30]); shake = Math.max(shake, 0.5);
+      burstAt(P.x, 0.3 * sig, P.z, 26, 10 * sig, 0.8, 0.7 * sig, '#38b6ff', -6 * sig);
+      say('SHIELD SAVE!', '#38b6ff', 30);
+      return 'scrape';
+    }
     if (sev > 1.25) { say(ct.k === 'nose' ? 'NOSE DIVE!' : 'CRASH!', '#ff6b6b', 28); endFlight('crash', 'ground'); return 'crash'; }
     if (P.impactGam < -0.2 && P.impactV > vb && ct.k !== 'top') { // skip off the ground
       P.gam = -P.impactGam * 0.4; P.v *= 0.8; P.ground = false; P.y += 0.02 * sig;
@@ -1355,6 +1422,17 @@ import * as W3 from './world3d.js';
     const fx = 16, fy = top + 60;
     bar(fx, fy, 88, 16, P.st.fuel > 0 ? P.fuel / P.st.fuel : 0, run.fuelFlash > 0 ? '#ff7070' : '#ffcf3a', P.fuel > 0 ? 'ENGINE' : P.st.fuel > 0 ? 'GLIDING' : 'NO ENGINE');
     if (S.lv.rocket > 0) bar(fx, fy + 22, 88, 16, P.rocket / P.rk.time, run.rocketFlash > 0 ? '#d99bff' : '#ff6a1a', 'ROCKET');
+    // active power-ups
+    let py = fy + (S.lv.rocket > 0 ? 44 : 22);
+    for (const k in run.pw) {
+      const left = run.pw[k];
+      if (left <= 0) continue;
+      const d = PW[k];
+      ctx.fillStyle = 'rgba(20,28,64,0.6)'; ctx.fillRect(fx, py, 88, 18);
+      ctx.fillStyle = d.col; ctx.fillRect(fx + 2, py + 2, 84 * Math.min(1, left / d.t), 14);
+      txt(d.icon + ' ' + d.name, fx + 44, py + 14, 11, '#fff');
+      py += 22;
+    }
     // altitude / speed
     txt('ALT ' + Math.floor(P.y) + ' m', W - 16, top + 70, 12, '#fff', 'right');
     txt('SPD ' + Math.floor(P.v * 3.6) + ' km/h', W - 16, top + 86, 12, '#fff', 'right');
@@ -1466,7 +1544,8 @@ import * as W3 from './world3d.js';
     }
     W3.frame({
       mode: state === 'result' ? 'ending' : state, t, dt, P, sig, len: planeLen(), px, py, pz, pitch, heading, bank,
-      engineOn: state === 'fly' && P.fuel > 0, rocketOn: state === 'fly' && P.rocketOn,
+      engineOn: state === 'fly' && P.fuel > 0, rocketOn: state === 'fly' && (P.rocketOn || (run && run.pw.turbo > 0)),
+      shield: state === 'fly' && run && run.pw.shield > 0,
       showPlane: !(run && run.shattered && state !== 'fly'), debris: run && run.shattered ? debris : null, camPitch: state === 'fly' ? lerp(prev.gam, P.gam, simAcc / HSTEP) : 0,
       ents, parts, trail, trailN, trailHead, trailStyle: trailStyle(), best: S.best, shake,
       aimYaw: state === 'aim' ? aim.yaw : 0, camX: W3.cameraX(), snap: snapCam,
@@ -1487,6 +1566,22 @@ import * as W3 from './world3d.js';
   const GOLD_TRAIL = { rgb: '#ffd23a', a: 1 };
   function trailStyle() { return run && run.rush > 0 ? GOLD_TRAIL : TRAIL_STYLE[S.trail] || TRAIL_STYLE[0]; }
 
+  // ===================================================================== adaptive resolution
+  // If frames get slow on a device, quietly render fewer pixels; raise them again when there's headroom.
+  let qFrames = 0, qStart = 0, qGood = 0, qScale = 1;
+  function adaptQuality(ts) {
+    if (document.hidden) { qFrames = 0; return; }
+    if (!qFrames) qStart = ts;
+    qFrames++;
+    const span = ts - qStart;
+    if (span < 2000) return;
+    const fps = (qFrames - 1) * 1000 / span;
+    qFrames = 0;
+    if (fps < 48 && qScale > 0.55) { qScale = Math.max(0.55, qScale - 0.15); qGood = 0; W3.setQuality(qScale); }
+    else if (fps > 57) { if (++qGood >= 3 && qScale < 1) { qScale = Math.min(1, qScale + 0.15); qGood = 0; W3.setQuality(qScale); } }
+    else qGood = 0;
+  }
+
   // ===================================================================== main loop
   let last = performance.now();
   function frame(ts) {
@@ -1495,6 +1590,7 @@ import * as W3 from './world3d.js';
     if (dt > 0.05) dt = 0.05;
     if (dt <= 0) return;
     gameT += dt;
+    adaptQuality(ts);
     let gdt = dt;
     if (state === 'fly') {
       if (slowHold > 0) slowHold -= dt; else timeScale += (1 - timeScale) * Math.min(1, dt * 4);
@@ -1579,7 +1675,10 @@ import * as W3 from './world3d.js';
     }
   }
   function cardStat(k) {
-    if (k === 'sling') return 'Power ' + C.slingPower(S.lv.sling).toFixed(2);
+    if (k === 'sling') {
+      const t = C.slingTier(S.lv.sling), left = 5 - ((S.lv.sling - 1) % 5);
+      return t < C.SLING_TIERS.length - 1 && left === 1 ? 'NEW LOOK NEXT!' : C.SLING_TIERS[t];
+    }
     if (k === 'plane') {
       const m = C.modelIndex(S.lv.plane);
       if (m >= MODELS.length - 1) return 'Max model';
@@ -1591,6 +1690,7 @@ import * as W3 from './world3d.js';
     return '';
   }
   function refreshUI() {
+    W3.setSling(C.slingTier(S.lv.sling));
     $('coins').textContent = fmt(S.coins);
     $('gems').textContent = fmt(S.gems);
     $('plane-name').textContent = MODELS[C.modelIndex(S.lv.plane)].name;
@@ -1622,10 +1722,10 @@ import * as W3 from './world3d.js';
     else { $('chest-txt').textContent = fmtTime(S.chestAt - t); cb.classList.remove('ready'); }
     const day = dayKey();
     if (S.free.day !== day) { S.free.day = day; S.free.used = 0; S.free.next = 0; }
-    const fb = $('btn-free');
-    if (S.free.used >= 3) { $('free-txt').textContent = 'TOMORROW'; fb.classList.remove('ready'); fb.classList.add('dim'); }
-    else if (t < S.free.next) { $('free-txt').textContent = fmtTime(S.free.next - t); fb.classList.remove('ready'); fb.classList.remove('dim'); }
-    else { $('free-txt').textContent = 'FREE ' + (3 - S.free.used) + '/3'; fb.classList.add('ready'); fb.classList.remove('dim'); }
+    // free gem lives on the gem counter: a "!" badge shows when one is ready
+    const freeReady = S.free.used < 3 && t >= S.free.next;
+    $('free-badge').classList.toggle('hidden', !freeReady);
+    $('btn-free').classList.toggle('ready', freeReady);
   }
   setInterval(() => { if (state === 'hangar') refreshTimers(); }, 1000);
 
@@ -1726,7 +1826,7 @@ import * as W3 from './world3d.js';
       let target = 0;
       switch (k) {
         case 'dist': target = niceNum(Math.max(150, S.best * (0.85 + r() * 0.3))); break;
-        case 'pick': target = 15 + Math.floor(r() * 4) * 5 + Math.min(40, S.flights); break;
+        case 'pick': target = 8 + Math.floor(r() * 3) * 4 + Math.min(16, Math.floor(S.flights / 2)); break;
         case 'combo': target = 10 + Math.floor(r() * 4) * 5; break;
         case 'rings': target = 4 + Math.floor(r() * 6); break;
         case 'flights': target = 5 + Math.floor(r() * 6); break;
@@ -1851,7 +1951,7 @@ import * as W3 from './world3d.js';
     const after = S.coins + r.total, cheapest = Math.min(C.COST.sling(S.lv.sling), C.COST.plane(S.lv.plane), C.COST.income(S.lv.income));
     if (after >= cheapest) h += '<div class="center"><span class="tag">UPGRADE READY!</span></div>';
     h += '<div class="lines"><div><span>Distance</span><span><i class="ico-coin"></i> ' + fmt(r.distCoins) + '</span></div>';
-    h += '<div><span>Pickups (' + r.picks + ')</span><span><i class="ico-coin"></i> ' + fmt(r.pickCoins) + '</span></div>';
+    h += '<div><span>Pickups &amp; bonuses</span><span><i class="ico-coin"></i> ' + fmt(r.pickCoins) + '</span></div>';
     if (r.skimT >= 0.3) h += '<div><span>Ground skim ' + r.skimT.toFixed(1) + 's</span><span><i class="ico-coin"></i> ' + fmt(r.skimCoins) + '</span></div>';
     if (r.landBonus) h += '<div><span>Landing bonus</span><span><i class="ico-coin"></i> ' + fmt(r.landBonus) + '</span></div>';
     if (r.gems) h += '<div><span>Gems</span><span><i class="ico-gem"></i> ' + r.gems + '</span></div>';
