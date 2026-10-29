@@ -129,7 +129,7 @@
     const need = (needL / (g * Math.max(vn2 * air, 0.04))) * (ATRIM + A0) - A0;
     let aT = Math.min(ASTALL * 0.9, Math.max(-0.12, need)) + u * 0.34;
     if (aT > 0.55) aT = 0.55; else if (aT < -0.35) aT = -0.35;
-    const a = (P.a || 0) + (aT - (P.a || 0)) * Math.min(1, dt * 6);
+    const a = (P.a || 0) + (aT - (P.a || 0)) * Math.min(1, dt * 3.5); // eased, so pitch changes feel weighty
     P.a = a;
 
     let L = g * vn2 * liftCoef(a) * air;
@@ -151,7 +151,7 @@
     // turning: banked turn rate, weaker when slow
     const ctrl = Math.min(1, vn / 0.6);
     let h = P.h || 0;
-    P.hr = (P.hr || 0) + ((ux || 0) * 1.2 * ctrl - (P.hr || 0)) * Math.min(1, dt * 4);
+    P.hr = (P.hr || 0) + ((ux || 0) * 0.62 * ctrl - (P.hr || 0)) * Math.min(1, dt * 1.8); // gentle banked turns that roll in and out
     if (P.hr > 1e-4 || P.hr < -1e-4) { h += P.hr * dt; if (h > 1.2) h = 1.2; else if (h < -1.2) h = -1.2; P.h = h; }
 
     const hv = v * Math.cos(gam);

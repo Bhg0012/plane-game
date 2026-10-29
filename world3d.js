@@ -70,11 +70,13 @@ let clouds = [], hills = [], decos = [];
 // ----------------------------------------------------------------- init
 export function init(canvas) {
   renderer = new THREE.WebGLRenderer({ canvas, antialias: true, powerPreference: 'high-performance' });
+  renderer.toneMapping = THREE.ACESFilmicToneMapping;
+  renderer.toneMappingExposure = 1.15;
   scene = new THREE.Scene();
   camera = new THREE.PerspectiveCamera(62, 1, 0.3, 5000);
   scene.fog = new THREE.Fog('#cfeeff', 60, 330);
   hemi = new THREE.HemisphereLight('#ffffff', '#5a6a40', 1.5);
-  sun = new THREE.DirectionalLight('#fff6e0', 2.2); sun.position.set(0.4, 1, 0.5);
+  sun = new THREE.DirectionalLight('#fff6e0', 2.2); sun.position.set(0.75, 0.62, -0.5); // matches the sun disc in the sky
   scene.add(hemi, sun);
 
   // sky dome (vertex coloured gradient, follows the camera)
@@ -86,11 +88,17 @@ export function init(canvas) {
   scene.add(sky);
 
   // ground: one big plane that follows the camera, its texture scrolls so it looks fixed in the world
-  const gc = document.createElement('canvas'); gc.width = gc.height = 128;
+  const gc = document.createElement('canvas'); gc.width = gc.height = 256;
   const g2 = gc.getContext('2d');
-  g2.fillStyle = '#fff'; g2.fillRect(0, 0, 128, 128);
-  g2.fillStyle = '#ececec'; g2.fillRect(0, 0, 64, 64); g2.fillRect(64, 64, 64, 64);
-  for (let i = 0; i < 160; i++) { g2.fillStyle = Math.random() < 0.5 ? 'rgba(0,0,0,0.07)' : 'rgba(255,255,255,0.5)'; g2.fillRect(Math.random() * 128, Math.random() * 128, 3, 3); }
+  g2.fillStyle = '#fff'; g2.fillRect(0, 0, 256, 256);
+  for (let i = 0; i < 8; i++) { g2.fillStyle = i % 2 ? '#f1f1f1' : '#e4e4e4'; g2.fillRect(i * 32, 0, 32, 256); } // mowed stripes
+  for (let i = 0; i < 26; i++) { // soft patches
+    const x = Math.random() * 256, y = Math.random() * 256, r = 10 + Math.random() * 26;
+    const gr = g2.createRadialGradient(x, y, 0, x, y, r);
+    const d = Math.random() < 0.5; gr.addColorStop(0, d ? 'rgba(0,0,0,0.08)' : 'rgba(255,255,255,0.35)'); gr.addColorStop(1, 'rgba(0,0,0,0)');
+    g2.fillStyle = gr; g2.fillRect(x - r, y - r, r * 2, r * 2);
+  }
+  for (let i = 0; i < 700; i++) { g2.fillStyle = Math.random() < 0.5 ? 'rgba(0,0,0,0.09)' : 'rgba(255,255,255,0.45)'; g2.fillRect(Math.random() * 256, Math.random() * 256, 2, 2 + Math.random() * 3); }
   groundTex = new THREE.CanvasTexture(gc);
   groundTex.wrapS = groundTex.wrapT = THREE.RepeatWrapping;
   groundTex.colorSpace = THREE.SRGBColorSpace;
@@ -131,6 +139,9 @@ export function init(canvas) {
   pools.spike = new Pool(new THREE.OctahedronGeometry(1, 0), lam('#2a2a2a'), 60);
   pools.grass = new Pool(base0(new THREE.ConeGeometry(0.5, 1, 4)), lam('#fff'), 260, true);
   pools.flower = new Pool(new THREE.IcosahedronGeometry(0.5, 0), new THREE.MeshLambertMaterial({ color: '#ffffff', emissive: '#333333' }), 120, true);
+  const prismG = new THREE.CylinderGeometry(0.5, 0.5, 1, 3); prismG.rotateX(Math.PI / 2); prismG.rotateZ(Math.PI); prismG.translate(0, 0.25, 0);
+  prismG.scale(1, 2, 1);
+  pools.prism = new Pool(new THREE.BufferGeometry().copy(prismG), lam('#fff'), 60, true);
   pools.cloud = new Pool(new THREE.IcosahedronGeometry(1, 1), new THREE.MeshLambertMaterial({ color: '#ffffff', emissive: '#8a96a8' }), 90);
   pools.hill = new Pool(base0(new THREE.ConeGeometry(0.5, 1, 6)), lam('#fff'), 40, true);
 
@@ -209,8 +220,12 @@ export function setPlane(model, paint, len, parts) {
   const add = (geo, mat, x, y, z, rx, ry, rz) => { const m = new THREE.Mesh(geo, mat); m.position.set(x, y, z); m.rotation.set(rx || 0, ry || 0, rz || 0); g.add(m); return m; };
   const jet = !M.prop;
   const cyl = (r1, r2, l, seg) => new THREE.CylinderGeometry(r1, r2, l, seg || 10).rotateZ(-Math.PI / 2); // axis along x, r1 at +x
-  add(cyl(jet ? 0.012 : 0.075, 0.1, 0.45), mb, 0.27, 0, 0);
-  add(cyl(0.1, 0.035, 0.55), mb, -0.22, 0, 0);
+  add(cyl(jet ? 0.012 : 0.075, 0.1, 0.45, 16), mb, 0.27, 0, 0);
+  add(cyl(0.1, 0.035, 0.55, 16), mb, -0.22, 0, 0);
+  if (M.prop && parts.engine) {
+    add(cyl(0.085, 0.1, 0.1, 16), md, 0.44, 0, 0); // engine cowling
+    for (const z of [-0.07, 0.07]) add(cyl(0.012, 0.012, 0.08, 6), md, 0.33, -0.06, z * 1.4); // exhaust stubs
+  }
   if (parts.cockpit) add(new THREE.SphereGeometry(0.07, 10, 8), mg, jet ? 0.22 : 0.1, 0.085, 0).scale.set(jet ? 2 : 1.5, 0.8, 0.85);
   if (parts.stripe) for (const z of [-0.101, 0.101]) add(new THREE.BoxGeometry(0.7, 0.03, 0.005), mw, 0.0, 0.0, z);
   const span = M.longWing ? 1.45 : 1.15;
@@ -230,6 +245,7 @@ export function setPlane(model, paint, len, parts) {
     add(new THREE.BoxGeometry(0.2, 0.025, 0.55), mw, -0.02, -0.03, -0.3, 0, -0.45, 0);
   } else {
     add(new THREE.BoxGeometry(0.22, 0.025, span), mw, 0.06, -0.03, 0);
+    for (const z of [-span / 2, span / 2]) add(new THREE.BoxGeometry(0.2, 0.03, 0.06), lam(z < 0 ? '#e63946' : '#2fbf4a'), 0.06, -0.03, z); // nav-light tips
   }
   if (M.bi) {
     add(new THREE.BoxGeometry(0.22, 0.025, 1.15), mw, 0.08, 0.2, 0);
@@ -271,7 +287,7 @@ export function resetScenery(x, z, sig) {
   for (let i = 0; i < 120; i++) decos.push(newDeco(x + rnd(-30, 260) * sig, z, sig));
 }
 function newDeco(x, z, sig) { return { x, z: z + rnd(-70, 70) * sig, s: rnd(0.6, 1.4) * sig, f: Math.random() < 0.3, hue: Math.random() }; }
-function newCloud(x, z, sig) { const s = rnd(5, 11) * sig; return { x, y: rnd(25, 110) * sig, z: z + rnd(-180, 180) * sig, s, puffs: 2 + (Math.random() * 3 | 0) }; }
+function newCloud(x, z, sig) { const s = rnd(5, 11) * sig; return { x, y: rnd(25, 110) * sig, z: z + rnd(-180, 180) * sig, s, puffs: 3 + (Math.random() * 3 | 0) }; }
 function newHill(x, z, sig) { const side = Math.random() < 0.5 ? -1 : 1; return { x, z: z + side * rnd(140, 300) * sig, w: rnd(60, 140) * sig, h: rnd(30, 90) * sig }; }
 
 // ----------------------------------------------------------------- per-frame
@@ -379,7 +395,10 @@ export function frame(v) {
   // clouds & hills drift past and recycle ahead of the plane
   for (const c of clouds) {
     if (c.x < v.camX - 60 * s) Object.assign(c, newCloud(v.px + rnd(300, 420) * s, v.pz, s));
-    for (let j = 0; j < c.puffs; j++) pools.cloud.add(c.x + j * c.s * 0.9, c.y + (j % 2) * c.s * 0.25, c.z + (j % 3) * c.s * 0.3, c.s * (1 - j * 0.12), c.s * 0.7, c.s * 0.8, j);
+    for (let j = 0; j < c.puffs; j++) {
+      const mid = 1 - Math.abs(j - (c.puffs - 1) / 2) / c.puffs; // bigger puffs in the middle, flat-ish bottom
+      pools.cloud.add(c.x + j * c.s * 0.85, c.y + mid * c.s * 0.35, c.z + ((j * 7) % 3 - 1) * c.s * 0.35, c.s * (0.7 + mid * 0.5), c.s * (0.5 + mid * 0.35), c.s * 0.8, j);
+    }
   }
   // ground detail: grass tufts and flowers (or ice/rubble/foam depending on the zone)
   const B = BIOMES[bi];
@@ -398,6 +417,7 @@ export function frame(v) {
   for (const h of hills) {
     if (h.x < v.camX - 150 * s) Object.assign(h, newHill(v.px + rnd(330, 450) * s, v.pz, s));
     pools.hill.add(h.x, 0, h.z, h.w, h.h, h.w, h.x * 0.01, hillC);
+    if (h.h > 65 * s && !BIOMES[bi].water) pools.hill.add(h.x, h.h * 0.72, h.z, h.w * 0.28, h.h * 0.28, h.w * 0.28, h.x * 0.01, colorOf(bi === 7 ? '#ff6a2a' : '#f4f8ff'));
   }
   for (const k in pools) pools[k].end();
 
@@ -440,10 +460,10 @@ export function frame(v) {
   // ---- camera
   updateCamera(v);
   ground.position.set(camera.position.x, 0, camera.position.z);
-  const gsize = 1400 * s, tile = 14 * s;
+  const gsize = 1400 * s, tile = 28 * s;
   ground.scale.set(gsize, 1, gsize);
   groundTex.repeat.set(gsize / tile, gsize / tile);
-  groundTex.offset.set(camera.position.x / tile, -camera.position.z / tile);
+  groundTex.offset.set(camera.position.x / tile + (BIOMES[bi].water ? v.t * 0.03 : 0), -camera.position.z / tile + (BIOMES[bi].water ? Math.sin(v.t * 0.7) * 0.02 : 0));
   sky.position.copy(camera.position); sky.scale.setScalar(camera.far * 0.9);
   const sd = camera.far * 0.8;
   sunDisc.position.set(camera.position.x + sd * 0.75, camera.position.y + sd * 0.42, camera.position.z - sd * 0.5);
@@ -539,8 +559,19 @@ function drawObst(e, t) {
     case 'tower': {
       pools.box.add(x, 0, z, w, h, w, 0, colorOf(sd < 0.5 ? '#3c4a63' : '#56657f'));
       const bc = colorOf('#ffe08a');
-      for (let f = 0.25; f < 0.95; f += 0.22) pools.box.add(x, h * f, z, w * 1.02, h * 0.035, w * 1.02, 0, bc);
-      pools.box.add(x, h, z, w * 0.06, h * 0.08, w * 0.06, 0, colorOf('#ff3b3b'));
+      const glass = colorOf('#8fb8e0');
+      pools.box.add(x, 0, z, w * 1.015, h * 0.98, w * 0.4, 0, glass);
+      pools.box.add(x, 0, z, w * 0.4, h * 0.98, w * 1.015, 0, glass);
+      for (let f = 0.25; f < 0.95; f += 0.22) pools.box.add(x, h * f, z, w * 1.03, h * 0.03, w * 1.03, 0, bc);
+      pools.box.add(x, h, z, w * 0.7, h * 0.03, w * 0.7, 0, colorOf('#2a3346'));
+      pools.box.add(x, h, z, w * 0.05, h * 0.1, w * 0.05, 0, colorOf('#ff3b3b'));
+      break;
+    }
+    case 'barn': {
+      const L = e.L, D = e.D, wh = e.wh;
+      pools.box.add(x, 0, z, L, wh, D, 0, colorOf('#b8322a'));
+      pools.prism.add(x, wh, z, L * 1.04, e.h - wh, D * 1.08, 0, colorOf('#4a3a34'));
+      pools.box.add(x + L * 0.5, 0, z, 0.3 * e.sg, wh * 0.7, D * 0.45, 0, colorOf('#f4f1ea'));
       break;
     }
     case 'buoy':
