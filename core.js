@@ -62,15 +62,32 @@
       sig, g, vbg, glide, drag,
       ind: drag * vbg * vbg * vbg * vbg,
       thrust: drag * vbg * vbg * ratio * ratio,
-      fuel: 2.5 + 0.06 * L + 0.25 * m,
+      fuel: planeParts(planeLvl).engine ? 2.5 + 0.06 * L + 0.25 * m + (planeParts(planeLvl).tanks ? 0.6 : 0) : 0,
       ceil: sig * (50 + 0.3 * L),
       scale: 1 + m * 0.08,
       model: m,
     };
   }
 
+  // Parts bolted onto the plane as it levels. The Cardboard Plane starts as a bare
+  // body + wings and only gets its propeller (engine and fuel) at level 4.
+  const PART_NAMES = { tail: 'Tail fin', cockpit: 'Cockpit & wheels', prop: 'Propeller engine', tanks: 'Fuel tanks', stripe: 'Racing stripe', winglets: 'Winglets', wheels: 'Landing gear' };
+  function planeParts(planeLvl) {
+    const m = modelIndex(planeLvl), sub = Math.min(4, planeLvl - 1 - m * 5);
+    if (m === 0) return { tail: sub >= 1, cockpit: sub >= 2, wheels: sub >= 2, engine: sub >= 3, tanks: sub >= 4, stripe: false, winglets: false };
+    return { tail: true, cockpit: true, engine: true, wheels: sub >= 1, stripe: sub >= 2, tanks: sub >= 3, winglets: sub >= 4 };
+  }
+  function nextPartName(planeLvl) {
+    if (modelIndex(planeLvl + 1) !== modelIndex(planeLvl)) return null;
+    const a = planeParts(planeLvl), b = planeParts(planeLvl + 1);
+    if (b.engine && !a.engine) return PART_NAMES.prop;
+    if (b.cockpit && !a.cockpit) return PART_NAMES.cockpit;
+    for (const k of ['tail', 'wheels', 'stripe', 'tanks', 'winglets']) if (b[k] && !a[k]) return PART_NAMES[k];
+    return null;
+  }
+
   // Launch speed in multiples of the plane's glide speed.
-  function slingPower(slingLvl) { return 1.5 + 0.075 * (slingLvl - 1); }
+  function slingPower(slingLvl) { return 1.7 + 0.075 * (slingLvl - 1); }
   function incomeMult(lvl) { return Math.round((1 + 0.2 * (lvl - 1)) * 10) / 10; }
   function rocketStats(lvl) { return { thrust: 2.2 + 0.12 * lvl, time: 1.2 + 0.3 * lvl }; } // thrust in g
 
@@ -83,17 +100,25 @@
 
   // ---- Flight physics. Energy-style arcade model: the plane flies where it points,
   // gravity trades speed for height, drag bleeds speed, thrust adds it.
-  // P: { x, y, v, p, fuel, rocket, rocketOn, ground, water, st, rk }
-  function stepPlane(P, u, dt, lift) {
+  // x = downrange, y = up, z = right. p = pitch, h = heading (0 = straight downrange).
+  // P: { x, y, z, v, p, h, fuel, rocket, rocketOn, ground, water, st, rk }
+  // u = pitch input, ux = turn input, both -1..1.
+  function stepPlane(P, u, dt, lift, ux) {
     const st = P.st;
     const stall = st.vbg * 0.6;
     const ctrl = Math.min(1, P.v / stall);
-    if (u !== 0) P.p += u * 2.3 * ctrl * dt;
-    else P.p += (-0.07 - P.p) * 0.5 * dt; // nose eases toward a gentle glide
-    if (P.v < stall) P.p -= (1 - P.v / stall) * 2.4 * dt; // stall: nose drops
+    // control inputs drive pitch/turn *rates* that ease in and out, so the plane never snaps
+    const k = Math.min(1, dt * 7);
+    const pTarget = u !== 0 ? u * 2.0 * ctrl : (-0.07 - P.p) * 0.6;
+    P.pr = (P.pr || 0) + (pTarget - (P.pr || 0)) * k;
+    P.p += P.pr * dt;
+    if (P.v < stall) P.p -= (1 - P.v / stall) * (1 - P.v / stall) * 3 * dt; // stall: nose drops, gently at first
     const over = P.y - st.ceil;
     if (over > 0) P.p -= Math.min(1.5, over / (25 * st.sig)) * dt; // thin air above the ceiling
     if (P.p > 1.35) P.p = 1.35; else if (P.p < -1.35) P.p = -1.35;
+    let h = P.h || 0;
+    P.hr = (P.hr || 0) + ((ux || 0) * 1.2 * ctrl - (P.hr || 0)) * Math.min(1, dt * 4);
+    if (P.hr > 1e-4 || P.hr < -1e-4) { h += P.hr * dt; if (h > 1.2) h = 1.2; else if (h < -1.2) h = -1.2; P.h = h; }
 
     const v2 = Math.max(P.v * P.v, 1);
     let a = -st.g * Math.sin(P.p) - st.drag * v2 - (P.ground ? 0 : st.ind / v2);
@@ -103,7 +128,9 @@
     P.v += a * dt;
     if (P.v < 0.3) P.v = 0.3;
 
-    P.x += P.v * Math.cos(P.p) * dt;
+    const hv = P.v * Math.cos(P.p);
+    P.x += hv * Math.cos(h) * dt;
+    if (h) P.z = (P.z || 0) + hv * Math.sin(h) * dt;
     P.y += (P.v * Math.sin(P.p) + (lift || 0) * st.sig) * dt;
     if (P.v < stall && !P.ground) P.y -= (stall - P.v) * 0.6 * dt;
 
@@ -125,7 +152,7 @@
     return null;
   }
 
-  const api = { G, MODELS, BIOMES, biomeIndex, modelIndex, planeStats, slingPower, incomeMult, rocketStats, COST, stepPlane };
+  const api = { G, MODELS, BIOMES, biomeIndex, modelIndex, planeStats, planeParts, nextPartName, slingPower, incomeMult, rocketStats, COST, stepPlane };
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
   else root.Core = api;
 })(typeof window !== 'undefined' ? window : globalThis);
