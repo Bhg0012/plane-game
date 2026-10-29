@@ -60,7 +60,7 @@ import * as W3 from './world3d.js';
   ];
 
   // ===================================================================== save
-  const VERSION = '1.11';
+  const VERSION = '1.12';
   const KEY = 'skyfling.save.v1';
   function defaults() {
     return {
@@ -655,7 +655,7 @@ import * as W3 from './world3d.js';
     prev.x = P.x; prev.y = P.y; prev.z = P.z; prev.p = P.p; prev.h = P.h; prev.gam = P.gam; simAcc = 0;
     run = {
       dist: 0, coins: 0, distCoins: 0, pickCoins: 0, skimCoins: 0, gems: 0, picks: 0, rings: 0, balloons: 0, birds: 0,
-      combo: 0, comboT: 0, maxCombo: 0, nears: 0, rush: 0, nextRush: 25, booms: 0, boomArmed: false, chainId: -1, chainN: 0, path: [], pathT: 0, skimT: 0, skimShow: 0, maxAlt: 0, t: 0, record: false, end: '', endT: 0,
+      combo: 0, comboT: 0, maxCombo: 0, nears: 0, swoops: 0, diving: false, diveTop: 0, rush: 0, nextRush: 25, booms: 0, boomArmed: false, chainId: -1, chainN: 0, path: [], pathT: 0, skimT: 0, skimShow: 0, maxAlt: 0, t: 0, record: false, end: '', endT: 0,
       bestAtStart: S.best, newBiomes: [], fuelFlash: 0,
     };
     trailN = 0; fovKick = 0; timeScale = 1; slowHold = 0;
@@ -750,7 +750,7 @@ import * as W3 from './world3d.js';
     S.stats.earned += r.total; S.stats.rings += r.rings;
     // missions
     trackMission('dist', r.dist, true); trackMission('pick', r.picks, true); trackMission('combo', r.maxCombo, true);
-    trackMission('rings', r.rings); trackMission('flights', 1); trackMission('skim', r.skimT); trackMission('near', r.nears); trackMission('balloon', r.balloons);
+    trackMission('rings', r.rings); trackMission('flights', 1); trackMission('skim', r.skimT); trackMission('near', r.nears); trackMission('swoop', r.swoops); trackMission('balloon', r.balloons);
     state = 'result';
     save();
     showResults();
@@ -950,6 +950,25 @@ import * as W3 from './world3d.js';
       run.skimCoins += sc; addCoins(sc, 'skim');
       run.skimShow = 0.3;
       if (Math.random() < 0.25) spawn(P.x - sig, 0.3 * sig, P.z, -P.v * 0.3, (2 + Math.random() * 3) * sig, (Math.random() - 0.5) * 3 * sig, 0.4, 0.5 * sig, '#ffd23a', -4 * sig);
+    }
+    // swoop: dive, then level out - the height you traded comes back as a burst of speed
+    if (!run.diving && !P.ground && P.gam < -0.3) { run.diving = true; run.diveTop = P.y; }
+    else if (run.diving) {
+      if (P.ground) run.diving = false;
+      else if (P.gam > -0.05) {
+        run.diving = false;
+        const drop = run.diveTop - P.y;
+        if (drop > 10 * sig) {
+          const k = Math.min(1, drop / (60 * sig)), low = P.y < 8 * sig;
+          C.kick(P, P.st.vbg * (0.18 + 0.4 * k) * (low ? 1.3 : 1));
+          const v = Math.round(b.rate * 12 * sig * (1 + 3 * k) * (low ? 2 : 1) * incomeNow);
+          addCoins(v, 'pick'); run.swoops++;
+          run.combo += 2; run.comboT = 1.6; if (run.combo > run.maxCombo) run.maxCombo = run.combo;
+          Sfx.ring(); buzz(12); fovKick = Math.max(fovKick, 6 + 8 * k);
+          floatText(W * 0.5, H * 0.34, (low ? 'LOW SWOOP! +' : 'SWOOP! +') + fmt(v), low ? '#ff9a3a' : '#7be276', 26 + Math.round(k * 6), 1);
+          checkRush();
+        }
+      }
     }
     // records & zones
     if (!run.record && run.bestAtStart > 50 && P.x > run.bestAtStart) {
@@ -1530,6 +1549,7 @@ import * as W3 from './world3d.js';
     balloon: { txt: (n) => 'Pop ' + n + ' balloons' },
     upgrade: { txt: (n) => 'Buy ' + n + ' upgrades' },
     near: { txt: (n) => 'Get ' + n + ' near misses' },
+    swoop: { txt: (n) => 'Pull off ' + n + ' swoops (dive, then level out)' },
   };
   function niceNum(n) { const p = Math.pow(10, Math.floor(Math.log10(Math.max(1, n)))); return Math.ceil(n / (p / 2)) * (p / 2); }
   function ensureMissions() {
@@ -1552,6 +1572,7 @@ import * as W3 from './world3d.js';
         case 'balloon': target = 2 + Math.floor(r() * 4); break;
         case 'upgrade': target = 5 + Math.floor(r() * 3) * 5; break;
         case 'near': target = 5 + Math.floor(r() * 4) * 5; break;
+        case 'swoop': target = 5 + Math.floor(r() * 3) * 5; break;
       }
       return { k, target, prog: 0, claimed: false, gems: 1 + (i === 2 ? 1 : 0) };
     });

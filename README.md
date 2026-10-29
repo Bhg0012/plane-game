@@ -20,6 +20,7 @@ Local test: `python3 -m http.server` in this folder, then visit `http://localhos
 - **Skim bonus:** fly fast just above the ground for extra coins. Land smoothly for +10%.
 - **Upgrades:** Slingshot (launch power), Plane (parts bolt on as you level: the Cardboard Plane starts as a bare body + wings, then gets a tail, cockpit & wheels, a propeller engine, fuel tanks; every 5 levels it evolves - 14 planes from Cardboard to Space Shuttle - and keeps gaining add-ons), Income (coin multiplier), Rocket booster (unlock with 1 gem, hold BOOST in flight). Press and hold a card to buy repeatedly.
 - **11 zones** by distance: Meadow -> Farmland -> Desert -> Canyon -> Snow Peaks -> Metro City -> Ocean -> Volcano Isle -> Stormfront -> Stratosphere -> Orbit. Each pays more per meter and gives gems the first time you reach it.
+- **Swoops:** dive and level out to turn the height you lost into a speed burst (bigger the further you dropped, double if you pull out low).
 - **Juice:** slow-motion on near misses / arch threads / sonic booms, SONIC BOOM bonus when you break a speed barrier, GOLD RUSH at a x25 combo (double coins + coin magnet + gold trail for 6s), ring chains with a PERFECT CHAIN bonus, and a see-through ghost replaying your best run.
 - **Extras:** 7-day login streak, timed chest (3h), 3 free gems a day, 3 daily missions, paint jobs and trails (gems), records flag, x2 results for 3 gems.
 
