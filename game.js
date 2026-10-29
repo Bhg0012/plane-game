@@ -60,7 +60,7 @@ import * as W3 from './world3d.js';
   ];
 
   // ===================================================================== save
-  const VERSION = '1.8';
+  const VERSION = '1.9';
   const KEY = 'skyfling.save.v1';
   function defaults() {
     return {
@@ -71,7 +71,7 @@ import * as W3 from './world3d.js';
       missions: { day: '', list: [] },
       paints: [0], paint: 0, trails: [0], trail: 0,
       set: { sound: true, haptics: true, control: 'drag', sens: 1, perf: false, invert: true },
-      tut: 0, savedAt: 0,
+      tut: 0, savedAt: 0, streak: { day: '', n: 0 },
       sync: { code: '', asked: false, last: 0 },
       stats: { earned: 0, rings: 0, crashes: 0, playMs: 0 },
     };
@@ -244,6 +244,8 @@ import * as W3 from './world3d.js';
       hit() { tone(220, 0.2, 'triangle', 0.06, 140, 0, 0.008); whoosh(0.15, 700, 0.08); },
       crash() { whoosh(0.9, 900, 0.3, 120); tone(80, 0.7, 'sine', 0.16, 40, 0, 0.01); },
       splash() { whoosh(0.7, 1200, 0.18, 300); },
+      boom() { tone(58, 0.9, 'sine', 0.22, 32, 0, 0.004); whoosh(1.1, 2000, 0.22, 160); },
+      rush() { [0, 4, 7, 9, 12].forEach((n, i) => tone(noteHz(n + 5), 0.3, 'sine', 0.05, 0, i * 0.05)); },
       buy() { tone(noteHz(4), 0.16, 'sine', 0.06); tone(noteHz(7), 0.22, 'sine', 0.06, 0, 0.06); },
       deny() { tone(196, 0.2, 'triangle', 0.04, 165); },
       evolve() { [0, 2, 4, 5, 7].forEach((n, i) => tone(noteHz(n), 0.45, 'triangle', 0.05, 0, i * 0.09, 0.02)); },
@@ -418,7 +420,11 @@ import * as W3 from './world3d.js';
       if (ci === 0) makeCoinGroup(r, x0 + 35 * sig, 0, 9 * sig, val, fresh);
       else makeCoinGroup(r, x0 + r() * CH * 0.7 * sig, zc + (r() - 0.5) * SPREAD * 1.2 * sig, yb, val, fresh);
     }
-    if (r() < 0.5 && ci >= 1) fresh.push({ k: 'ring', x: x0 + r() * CH * sig, y: (8 + r() * ceil * 0.6) * sig, z: zc + (r() - 0.5) * SPREAD * sig, r: 5 * sig, dead: false });
+    if (ci >= 2 && r() < 0.16) { // ring chain: fly through them all for a big bonus
+      const n = 3 + Math.floor(r() * 3), bx = x0 + r() * CH * 0.4 * sig, by = (10 + r() * ceil * 0.5) * sig, bz = zc + (r() - 0.5) * SPREAD * sig;
+      const dz = (r() - 0.5) * 6 * sig, dyA = (2 + r() * 4) * sig;
+      for (let i = 0; i < n; i++) fresh.push({ k: 'ring', x: bx + i * 16 * sig, y: by + Math.sin(i * 0.9) * dyA, z: bz + i * dz, r: 5 * sig, chain: ci, len: n, dead: false });
+    } else if (r() < 0.5 && ci >= 1) fresh.push({ k: 'ring', x: x0 + r() * CH * sig, y: (8 + r() * ceil * 0.6) * sig, z: zc + (r() - 0.5) * SPREAD * sig, r: 5 * sig, dead: false });
     if (r() < 0.16 && ci >= 1) fresh.push({ k: 'fuel', x: x0 + r() * CH * sig, y: (5 + r() * ceil * 0.5) * sig, z: zr(), dead: false });
     if (r() < 0.22 && ci >= 2) fresh.push({ k: 'balloon', x: x0 + r() * CH * sig, y: (6 + r() * ceil * 0.5) * sig, z: zr(), hue: Math.floor(r() * 6), dead: false });
     if (r() < 0.18 && ci >= 1) fresh.push({ k: 'lift', x: x0 + r() * CH * sig, y: 0, z: zr(), w: 10 * sig, top: ceil * 0.9 * sig, dead: false });
@@ -649,10 +655,11 @@ import * as W3 from './world3d.js';
     prev.x = P.x; prev.y = P.y; prev.z = P.z; prev.p = P.p; prev.h = P.h; prev.gam = P.gam; simAcc = 0;
     run = {
       dist: 0, coins: 0, distCoins: 0, pickCoins: 0, skimCoins: 0, gems: 0, picks: 0, rings: 0, balloons: 0, birds: 0,
-      combo: 0, comboT: 0, maxCombo: 0, nears: 0, skimT: 0, skimShow: 0, maxAlt: 0, t: 0, record: false, end: '', endT: 0,
+      combo: 0, comboT: 0, maxCombo: 0, nears: 0, rush: 0, nextRush: 25, booms: 0, boomArmed: false, chainId: -1, chainN: 0, path: [], pathT: 0, skimT: 0, skimShow: 0, maxAlt: 0, t: 0, record: false, end: '', endT: 0,
       bestAtStart: S.best, newBiomes: [], fuelFlash: 0,
     };
-    trailN = 0;
+    trailN = 0; fovKick = 0; timeScale = 1; slowHold = 0;
+    ghostRun = loadGhost();
     W3.resetScenery(P.x, P.z, sig);
     state = 'fly';
     Sfx.launch(); Sfx.engineStart(!MODELS[P.st.model].prop);
@@ -738,7 +745,7 @@ import * as W3 from './world3d.js';
     r.landBonus = r.end === 'land' ? Math.round(r.coins * 0.1) : 0;
     r.total = Math.round(r.coins + r.landBonus);
     r.prevBest = S.best;
-    if (r.dist > S.best) S.best = r.dist;
+    if (r.dist > S.best) { S.best = r.dist; saveGhost(r.path); }
     S.total += r.dist; S.flights++;
     S.stats.earned += r.total; S.stats.rings += r.rings;
     // missions
@@ -753,6 +760,8 @@ import * as W3 from './world3d.js';
   const aim = { active: false, id: -1, sx: 0, sy: 0, power: 0, yaw: 0 };
   const stick = { id: -1, ax: 0, ay: 0, x: 0, y: 0, on: false };
   let boostId = -1, keyUp = false, keyDown = false, keyLeft = false, keyRight = false, keyBoost = false;
+  // computers with a mouse/trackpad get keyboard hints
+  const KEYS = !!(window.matchMedia && window.matchMedia('(hover: hover) and (pointer: fine)').matches);
   function boostBtn() { const r = Math.min(46, W * 0.12); return { x: W - r - 22, y: H - r - 40, r }; }
   function pauseBtn() { return { x: W - 34, y: 34 + safeTop(), r: 22 }; }
   const probe = document.createElement('div');
@@ -872,6 +881,29 @@ import * as W3 from './world3d.js';
     P.bank += ((P.hr || 0) * 1.25 - P.bank) * Math.min(1, dt * 3);
     run.t += dt;
     if (run.comboT > 0) { run.comboT -= dt; if (run.comboT <= 0) run.combo = 0; }
+    if (run.rush > 0) run.rush -= dt;
+    if (P.rocketOn) fovKick = Math.max(fovKick, 7);
+    // sonic boom when you break through a speed barrier
+    const vn = P.v / P.st.vbg;
+    if (vn < 2.3) run.boomArmed = true;
+    if (run.boomArmed && vn > 3.1 && run.booms < 3) {
+      run.boomArmed = false; run.booms++;
+      const v = Math.round(BIOMES[C.biomeIndex(P.x)].rate * 80 * sig * incomeNow);
+      addCoins(v, 'pick');
+      Sfx.boom(); buzz([30, 20, 40]); shake = Math.max(shake, 0.5); fovKick = 16; slowmo(0.3, 0.3);
+      for (let i = 0; i < 40; i++) { const a = i / 40 * 6.283; spawn(P.x, P.y, P.z, P.v * 0.3, Math.cos(a) * 14 * sig, Math.sin(a) * 14 * sig, 0.7, 0.7 * sig, '#ffffff', 0, 0.8); }
+      floatText(W * 0.5, H * 0.34, 'SONIC BOOM! +' + fmt(v), '#ffffff', 30, 1.2);
+    }
+    // record the path for the ghost replay
+    run.pathT -= dt;
+    if (run.pathT <= 0) { run.pathT += GHOST_DT; run.path.push(P.x, P.y, P.z, P.h); }
+    // sparkles rising through updrafts ahead
+    for (let i = 0; i < ents.length; i++) {
+      const e = ents[i];
+      if (e.k !== 'lift' || e.x < P.x - 10 * sig || e.x > P.x + 150 * sig || Math.random() > 0.35) continue;
+      const a = Math.random() * 6.283, rr = Math.random() * e.w * 0.45;
+      spawn(e.x + Math.cos(a) * rr, Math.random() * e.top * 0.6, e.z + Math.sin(a) * rr, 0, (10 + Math.random() * 8) * sig, 0, 1.6, 0.35 * sig, '#ffffff', 0, 0.7);
+    }
     Sfx.engine(P.v / P.st.vbg, P.fuel > 0, P.rocketOn);
     // exhaust / smoke
     if (P.fuel > 0 || P.rocketOn) {
@@ -941,11 +973,16 @@ import * as W3 from './world3d.js';
       const ddz = e.z - P.z;
       switch (e.k) {
         case 'coin': {
+          if (run.rush > 0 && ddx < 14 * sig && ddx > -4 * sig) { // gold rush magnet
+            const k = Math.min(1, HSTEP * 7);
+            e.x += (P.x - e.x) * k; e.y += (P.y - e.y) * k; e.z += (P.z - e.z) * k;
+          }
           const dy = e.y - P.y;
           if (ddx * ddx + dy * dy + ddz * ddz < cr2) {
             e.dead = true;
             run.combo++; run.comboT = 1.4; if (run.combo > run.maxCombo) run.maxCombo = run.combo;
-            const v = e.val * (1 + Math.min(run.combo, 40) * 0.05);
+            const v = e.val * (1 + Math.min(run.combo, 40) * 0.05) * (run.rush > 0 ? 2 : 1);
+            checkRush();
             run.picks++; addCoins(v, 'pick');
             Sfx.coin(run.combo);
             spawn(e.x, e.y, e.z, 0, 3 * sig, 0, 0.35, 1.2 * sig, '#ffe27a', 0);
@@ -976,9 +1013,17 @@ import * as W3 from './world3d.js';
             e.dead = true; run.rings++;
             C.kick(P, P.st.vbg * 0.55);
             run.combo += 5; run.comboT = 1.6; if (run.combo > run.maxCombo) run.maxCombo = run.combo;
-            Sfx.ring(); buzz(15); shake = Math.max(shake, 0.25);
+            Sfx.ring(); buzz(15); shake = Math.max(shake, 0.25); fovKick = Math.max(fovKick, 6);
             burstAt(e.x, e.y, e.z, 20, 10 * sig, 0.6, 0.55 * sig, '#ffb43a', 0);
-            floatText(W * 0.5, H * 0.38, 'BOOST!', '#ffb43a', 28, 0.8);
+            if (e.chain !== undefined) {
+              if (run.chainId === e.chain) run.chainN++; else { run.chainId = e.chain; run.chainN = 1; }
+              if (run.chainN >= e.len) {
+                const v = Math.round(b.rate * 40 * sig * e.len * incomeNow);
+                addCoins(v, 'pick'); Sfx.fanfare(); slowmo(0.35, 0.25);
+                floatText(W * 0.5, H * 0.36, 'PERFECT CHAIN! +' + fmt(v), '#ffd23a', 30, 1.2);
+              } else floatText(W * 0.5, H * 0.38, 'RING ' + run.chainN + ' / ' + e.len, '#ffb43a', 28, 0.8);
+            } else floatText(W * 0.5, H * 0.38, 'BOOST!', '#ffb43a', 28, 0.8);
+            checkRush();
           }
           break;
         }
@@ -1014,6 +1059,7 @@ import * as W3 from './world3d.js';
             addCoins(v, 'pick'); run.combo += 5; run.comboT = 1.6; run.nears++;
             Sfx.ring(); buzz(20);
             floatText(W * 0.5, H * 0.34, 'THREADED IT! +' + fmt(v), '#7be276', 28, 1.1);
+            slowmo(0.3, 0.3);
           }
           if (P.y - pr - NEAR * sig > e.top) break;
           if (hitObst(e, P.x, P.y, P.z, pr)) { endFlight('crash'); return; }
@@ -1023,6 +1069,7 @@ import * as W3 from './world3d.js';
             addCoins(v, 'pick'); run.combo += 3; run.comboT = 1.6; if (run.combo > run.maxCombo) run.maxCombo = run.combo;
             Sfx.balloon(); buzz(10);
             floatText(W * 0.5, H * 0.34, 'NEAR MISS! +' + fmt(v), '#7fd0ff', 24, 0.9);
+            slowmo(0.4, 0.15);
           }
           break;
         }
@@ -1040,6 +1087,36 @@ import * as W3 from './world3d.js';
     }
   }
   const NEAR = 2.4; // how close counts as a near miss, in plane-scale units
+  // ---- juice: slow motion, camera punch, gold rush, ghost of the best run
+  let timeScale = 1, slowHold = 0, lastSlow = -9, fovKick = 0;
+  function slowmo(scale, hold) {
+    if (gameT - lastSlow < 1) return;
+    lastSlow = gameT; timeScale = Math.min(timeScale, scale); slowHold = Math.max(slowHold, hold);
+  }
+  function checkRush() {
+    if (run.combo < run.nextRush) return;
+    run.nextRush = run.combo + 30; run.rush = 6;
+    Sfx.rush(); buzz([20, 30, 20]);
+    banner('GOLD RUSH!', 'double coins + magnet for 6s');
+    burstAt(P.x, P.y, P.z, 30, 10 * sig, 0.8, 0.5 * sig, '#ffd23a', 0);
+  }
+  const GHOST_KEY = 'skyfling.ghost.v1', GHOST_DT = 0.12;
+  let ghostRun = null;
+  function loadGhost() { try { const g = JSON.parse(localStorage.getItem(GHOST_KEY) || 'null'); return g && g.p && g.p.length > 8 ? g : null; } catch (e) { return null; } }
+  function saveGhost(path) {
+    if (!path || path.length < 8) return;
+    try { localStorage.setItem(GHOST_KEY, JSON.stringify({ p: path.map((v) => Math.round(v * 10) / 10) })); } catch (e) { /* full */ }
+  }
+  const ghostPos = { x: 0, y: 0, z: 0, h: 0, p: 0 };
+  function ghostAt(t) {
+    if (!ghostRun) return null;
+    const p = ghostRun.p, n = p.length / 4, f = t / GHOST_DT, i = Math.floor(f);
+    if (i >= n - 1) return null;
+    const a = f - i, o = i * 4, q = o + 4;
+    ghostPos.x = lerp(p[o], p[q], a); ghostPos.y = lerp(p[o + 1], p[q + 1], a); ghostPos.z = lerp(p[o + 2], p[q + 2], a); ghostPos.h = lerp(p[o + 3], p[q + 3], a);
+    ghostPos.p = Math.atan2(p[q + 1] - p[o + 1], Math.hypot(p[q] - p[o], p[q + 2] - p[o + 2]) || 1e-6);
+    return ghostPos;
+  }
   const BALLOON_C = ['#ff5a5a', '#ffcf3a', '#5fd35a', '#3f8ff5', '#c56bff', '#ff8ad8'];
 
   function updateParticles(dt) {
@@ -1114,6 +1191,17 @@ import * as W3 from './world3d.js';
       txt('coins +' + Math.round(Math.min(run.combo, 40) * 5) + '%', W / 2, H * 0.27 + 18, 12, '#fff');
     }
     if (run.skimShow > 0) txt('SKIMMING!', W / 2, H * 0.66, 20, '#ffd23a');
+    if (run.rush > 0) {
+      const bw = Math.min(200, W * 0.5);
+      txt('GOLD RUSH', W / 2, H * 0.27 + 44, 18, '#ffd23a');
+      ctx.fillStyle = 'rgba(20,28,64,0.6)'; ctx.fillRect(W / 2 - bw / 2, H * 0.27 + 50, bw, 8);
+      ctx.fillStyle = '#ffd23a'; ctx.fillRect(W / 2 - bw / 2 + 1, H * 0.27 + 51, (bw - 2) * Math.max(0, run.rush / 6), 6);
+    }
+    const gp = state === 'fly' ? ghostAt(run.t) : null;
+    if (gp) {
+      const sp = W3.project(gp.x, gp.y + planeLen() * 0.6, gp.z);
+      if (sp.ok && sp.x > 20 && sp.x < W - 20 && sp.y > 130 + safeTop() && sp.y < H - 20) txt('BEST', sp.x, sp.y, 12, '#bfe6ff');
+    }
     // pause
     const pb = pauseBtn();
     ctx.fillStyle = 'rgba(20,28,64,0.55)'; ctx.beginPath(); ctx.arc(pb.x, pb.y, pb.r, 0, 6.283); ctx.fill();
@@ -1125,8 +1213,9 @@ import * as W3 from './world3d.js';
       ctx.beginPath(); ctx.arc(b.x, b.y, b.r, 0, 6.283); ctx.fill();
       ctx.strokeStyle = '#1b2240'; ctx.lineWidth = 4; ctx.stroke();
       ctx.strokeStyle = '#ffe27a'; ctx.lineWidth = 5; ctx.beginPath(); ctx.arc(b.x, b.y, b.r - 6, -Math.PI / 2, -Math.PI / 2 + 6.283 * f); ctx.stroke();
-      txt('BOOST', b.x, b.y + 5, 14, '#fff');
-      if (S.tut < 3 && f > 0 && P.fuel <= 0 && run.t < 30) txt('HOLD!', b.x, b.y - b.r - 10, 14, '#ffe27a');
+      txt('BOOST', b.x, b.y + (KEYS ? 0 : 5), 14, '#fff');
+      if (KEYS) txt('SPACE', b.x, b.y + 16, 10, '#ffe27a');
+      if (S.tut < 3 && f > 0 && P.fuel <= 0 && run.t < 30) txt(KEYS ? 'HOLD SPACE!' : 'HOLD!', b.x, b.y - b.r - 10, 14, '#ffe27a');
     }
     // stick indicator
     if (stick.on) {
@@ -1138,8 +1227,13 @@ import * as W3 from './world3d.js';
     }
     // tutorial
     if (S.tut < 2 && run.t > 0.6 && run.t < 7) {
-      txt(S.set.control === 'hold' ? 'HOLD to climb, slide LEFT / RIGHT to turn' : (S.set.invert ? 'PULL DOWN to climb, PUSH UP to dive' : 'DRAG UP to climb, DOWN to dive'), W / 2, H * 0.74, 19, '#fff');
-      txt('Slide left / right to bank and turn', W / 2, H * 0.74 + 24, 14, '#fff');
+      if (KEYS) {
+        txt(S.set.invert ? 'DOWN ARROW to climb, UP to dive' : 'UP ARROW to climb, DOWN to dive', W / 2, H * 0.74, 19, '#fff');
+        txt('LEFT / RIGHT to turn  ·  hold SPACE to boost', W / 2, H * 0.74 + 24, 14, '#fff');
+      } else {
+        txt(S.set.control === 'hold' ? 'HOLD to climb, slide LEFT / RIGHT to turn' : (S.set.invert ? 'PULL DOWN to climb, PUSH UP to dive' : 'DRAG UP to climb, DOWN to dive'), W / 2, H * 0.74, 19, '#fff');
+        txt('Slide left / right to bank and turn', W / 2, H * 0.74 + 24, 14, '#fff');
+      }
     }
   }
   function drawTexts() {
@@ -1198,6 +1292,7 @@ import * as W3 from './world3d.js';
       showPlane: true, camPitch: state === 'fly' ? lerp(prev.gam, P.gam, simAcc / HSTEP) : 0,
       ents, parts, trail, trailN, trailHead, trailStyle: trailStyle(), best: S.best, shake,
       aimYaw: state === 'aim' ? aim.yaw : 0, camX: W3.cameraX(), snap: snapCam,
+      fovKick, ghost: state === 'fly' && run ? ghostAt(run.t) : null,
     });
     snapCam = false;
     ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
@@ -1211,7 +1306,8 @@ import * as W3 from './world3d.js';
     const m = T.color.match(/rgba\((\d+),(\d+),(\d+),([\d.]+)\)/);
     return { rgb: '#' + [m[1], m[2], m[3]].map((v) => (+v).toString(16).padStart(2, '0')).join(''), a: +m[4] };
   });
-  function trailStyle() { return TRAIL_STYLE[S.trail] || TRAIL_STYLE[0]; }
+  const GOLD_TRAIL = { rgb: '#ffd23a', a: 1 };
+  function trailStyle() { return run && run.rush > 0 ? GOLD_TRAIL : TRAIL_STYLE[S.trail] || TRAIL_STYLE[0]; }
 
   // ===================================================================== main loop
   let last = performance.now();
@@ -1221,23 +1317,27 @@ import * as W3 from './world3d.js';
     if (dt > 0.05) dt = 0.05;
     if (dt <= 0) return;
     gameT += dt;
+    let gdt = dt;
     if (state === 'fly') {
-      updateFly(dt);
+      if (slowHold > 0) slowHold -= dt; else timeScale += (1 - timeScale) * Math.min(1, dt * 4);
+      gdt = dt * timeScale;
+      updateFly(gdt);
       if (run.fuelFlash > 0) run.fuelFlash -= dt;
       if (run.skimShow > 0) run.skimShow -= dt;
       ensureWorld(P.x + 420 * sig);
       if ((gameT * 60 | 0) % 30 === 0) pruneWorld(Math.min(W3.cameraX(), P.x) - 40 * sig);
       // birds bob
-      for (let i = 0; i < ents.length; i++) { const e = ents[i]; if (e.k === 'bird' && !e.dead) { e.y = e.y0 + Math.sin(gameT * 2 + e.ph) * 2 * sig; e.x -= 3 * sig * dt; } }
+      for (let i = 0; i < ents.length; i++) { const e = ents[i]; if (e.k === 'bird' && !e.dead) { e.y = e.y0 + Math.sin(gameT * 2 + e.ph) * 2 * sig; e.x -= 3 * sig * gdt; } }
     } else if (state === 'ending') {
       run.endT += dt;
       updateWreck(dt);
     }
+    fovKick = Math.max(0, fovKick - dt * 12);
     if (state !== 'paused') {
-      updateParticles(dt);
+      updateParticles(gdt);
       if (shake > 0) shake = Math.max(0, shake - dt * 2.5);
     }
-    render(gameT, state === 'paused' ? 0 : dt);
+    render(gameT, state === 'paused' ? 0 : gdt);
   }
 
   // ===================================================================== UI
@@ -1546,7 +1646,14 @@ import * as W3 from './world3d.js';
     const newBest = r.dist > r.prevBest && r.prevBest > 0;
     const head = r.end === 'crash' ? '<span class="tag red">CRASHED</span>' : r.end === 'quit' ? '<span class="tag blue">ENDED</span>' : '<span class="tag">SMOOTH LANDING</span>';
     let h = '<h2>' + (newBest ? 'NEW RECORD!' : 'FLIGHT COMPLETE') + '</h2><div class="center">' + head + '</div>';
-    h += '<div class="big-num">' + fmtDist(r.dist) + '</div><div class="sub">Best ' + fmtDist(S.best) + ' · max alt ' + Math.floor(r.maxAlt) + ' m · combo x' + r.maxCombo + '</div>';
+    h += '<div class="big-num">' + fmtDist(r.dist) + '</div><div class="sub">Best ' + fmtDist(S.best) + ' · max alt ' + Math.floor(r.maxAlt) + ' m · combo x' + r.maxCombo + (r.nears ? ' · ' + r.nears + ' near misses' : '') + '</div>';
+    const nb = C.biomeIndex(S.best) + 1;
+    if (nb < BIOMES.length) {
+      const f = Math.min(1, S.best / BIOMES[nb].start);
+      h += '<p class="center" style="margin:8px 0 2px;font-weight:800">Next zone: ' + BIOMES[nb].name + ' at ' + fmtDist(BIOMES[nb].start) + '</p><div class="bar"><i style="width:' + Math.round(f * 100) + '%"></i></div>';
+    }
+    const after = S.coins + r.total, cheapest = Math.min(C.COST.sling(S.lv.sling), C.COST.plane(S.lv.plane), C.COST.income(S.lv.income));
+    if (after >= cheapest) h += '<div class="center"><span class="tag">UPGRADE READY!</span></div>';
     h += '<div class="lines"><div><span>Distance</span><span><i class="ico-coin"></i> ' + fmt(r.distCoins) + '</span></div>';
     h += '<div><span>Pickups (' + r.picks + ')</span><span><i class="ico-coin"></i> ' + fmt(r.pickCoins) + '</span></div>';
     if (r.skimT >= 0.3) h += '<div><span>Ground skim ' + r.skimT.toFixed(1) + 's</span><span><i class="ico-coin"></i> ' + fmt(r.skimCoins) + '</span></div>';
@@ -1693,13 +1800,38 @@ import * as W3 from './world3d.js';
       });
     });
   }
+  // daily login streak: come back each day for a bigger reward (7-day cycle)
+  function maybeStreak() {
+    if (!modal.classList.contains('hidden') || state !== 'hangar') return;
+    const today = dayKey();
+    if (S.streak.day === today) return;
+    const y = new Date(Date.now() - 86400000), yKey = y.getFullYear() + '-' + (y.getMonth() + 1) + '-' + y.getDate();
+    const n = S.streak.day === yKey ? (S.streak.n % 7) + 1 : 1;
+    const base = missionCoins();
+    const reward = (d) => ({ coins: Math.round(base * (0.6 + d * 0.4)), gems: d === 7 ? 5 : d === 5 ? 2 : d === 3 ? 1 : 0 });
+    let row = '<div style="display:grid;grid-template-columns:repeat(7,1fr);gap:4px;margin:10px 0">';
+    for (let d = 1; d <= 7; d++) {
+      const rw = reward(d), on = d === n, done = d < n;
+      row += '<div style="border-radius:10px;padding:6px 2px;text-align:center;font-size:11px;font-weight:900;background:' + (on ? '#ffcf3a' : done ? '#7be276' : '#e1dccf') + ';border:2px solid ' + (on ? '#1b2240' : 'transparent') + '">DAY ' + d + '<div style="font-size:18px;margin:2px 0">' + (rw.gems ? '<i class="ico-gem"></i>' : '<i class="ico-coin"></i>') + '</div>' + (rw.gems ? rw.gems : fmt(rw.coins)) + '</div>';
+    }
+    row += '</div>';
+    const rw = reward(n);
+    openPanel('<h2>DAILY BONUS</h2><p class="center">Day ' + n + ' streak! Come back tomorrow for more.</p>' + row +
+      '<div class="big-num"><i class="ico-coin"></i> ' + fmt(rw.coins) + (rw.gems ? ' <span style="font-size:30px">+ <i class="ico-gem"></i> ' + rw.gems + '</span>' : '') + '</div>' +
+      '<button class="btn" id="claimday">CLAIM</button>', (p) => {
+      p.querySelector('#claimday').addEventListener('click', () => {
+        S.streak.day = today; S.streak.n = n; S.coins += rw.coins; S.gems += rw.gems;
+        Sfx.evolve(); buzz(20); save(); closePanel(); bumpPill('.pill.coin');
+      });
+    }, false);
+  }
   // first launch on a new device: offer to load an existing save
   function maybeWelcome() {
     if (!Cloud.ok() || S.sync.code || S.sync.asked || S.flights > 0) return;
     S.sync.asked = true; save();
     openPanel('<h2>WELCOME, PILOT!</h2><p class="center">Already playing on another device? Enter your sync code to bring your progress here.</p>' +
       '<button class="btn" id="wnew">NEW GAME</button><button class="btn blue" id="whave">I HAVE A CODE</button>', (p) => {
-      p.querySelector('#wnew').addEventListener('click', closePanel);
+      p.querySelector('#wnew').addEventListener('click', () => { closePanel(); maybeStreak(); });
       p.querySelector('#whave').addEventListener('click', () => showCodeEntry(maybeWelcomeBack));
     });
   }
@@ -1713,6 +1845,7 @@ import * as W3 from './world3d.js';
   W3.resetScenery(0, 0, sig);
   refreshUI();
   maybeWelcome();
+  maybeStreak();
   Cloud.pull();
   requestAnimationFrame((ts) => { last = ts; frame(ts); });
   // Updates: check for a new version on open and whenever the game comes back to the foreground;
