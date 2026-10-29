@@ -69,7 +69,7 @@ import * as W3 from './world3d.js';
       chestAt: 0, free: { day: '', used: 0, next: 0 },
       missions: { day: '', list: [] },
       paints: [0], paint: 0, trails: [0], trail: 0,
-      set: { sound: true, haptics: true, control: 'drag', sens: 1, perf: false },
+      set: { sound: true, haptics: true, control: 'drag', sens: 1, perf: false, invert: true },
       tut: 0, savedAt: 0,
       sync: { code: '', asked: false, last: 0 },
       stats: { earned: 0, rings: 0, crashes: 0, playMs: 0 },
@@ -438,7 +438,7 @@ import * as W3 from './world3d.js';
   // Obstacles: each has a list of simple collision shapes, so what you see is what you hit.
   const BIOME_OBST = [
     ['tree', 'tree', 'tree', 'rock'],
-    ['silo', 'windmill', 'tree', 'tree'],
+    ['silo', 'windmill', 'tree', 'barn', 'tree'],
     ['cactus', 'cactus', 'rock', 'arch'],
     ['pillar', 'pillar', 'arch', 'rock'],
     ['pine', 'pine', 'iceberg', 'rock'],
@@ -450,25 +450,35 @@ import * as W3 from './world3d.js';
     ['satellite', 'mine', 'spire', 'satellite'],
   ];
   const ROCK_C = ['#8a8f96', '#9a8f7a', '#c9a46a', '#a4562f', '#cfe3f2', '#7a8496', '#6a7480', '#3a2f2f', '#5a6470', '#4a5470', '#6a6a78'];
+  const GIANT = new Set(['tree', 'pine', 'spire', 'pillar', 'tower', 'windmill']);
   function makeObst(t, x, z, b, r, ceil) {
     const s = sig, bi = BIOMES.indexOf(b);
-    const hB = (b.hMin + r() * (b.hMax - b.hMin)) * s;
+    // ~1 in 4 of the tall kinds is a giant that reaches up into cruising altitude
+    const giant = GIANT.has(t) && r() < 0.24, gk = giant ? 1.9 : 1;
+    const hB = giant ? (0.45 + r() * 0.45) * ceil * s : (b.hMin + r() * (b.hMax - b.hMin)) * s;
     const e = { k: 'obst', t, x, y: 0, z, w: 4 * s, h: hB, top: hB, seed: r(), cols: [], dead: false, col: '', sg: s };
     const cyl = (r0, y1, y0) => e.cols.push({ c: 'cyl', x, z, r: r0, y0: y0 || 0, y1 });
     const box = (cx, cy, cz, hx, hy, hz) => e.cols.push({ c: 'box', x0: cx - hx, x1: cx + hx, y0: cy - hy, y1: cy + hy, z0: cz - hz, z1: cz + hz });
     switch (t) {
-      case 'tree': e.w = 4.5 * s; cyl(e.w * 0.5, e.h); break;
+      case 'tree': e.w = 4.5 * s * gk; cyl(e.w * 0.5, e.h); break;
       case 'rock': e.w = (5 + r() * 6) * s; e.h = e.top = e.w * 0.75; e.col = ROCK_C[bi]; cyl(e.w * 0.42, e.h * 0.9); break;
       case 'silo': e.w = 5 * s; e.top = e.h + e.w / 2; cyl(e.w / 2, e.top); break;
       case 'cactus': e.w = 2.6 * s; cyl(e.w * 0.6, e.h); break;
-      case 'pine': e.w = 6 * s; e.cols.push({ c: 'cone', x, z, r: e.w / 2, h: e.h }); break;
-      case 'spire': e.w = 9 * s; e.cols.push({ c: 'cone', x, z, r: e.w / 2, h: e.h }); break;
+      case 'pine': e.w = 6 * s * gk; e.cols.push({ c: 'cone', x, z, r: e.w / 2, h: e.h }); break;
+      case 'spire': e.w = 9 * s * gk; e.cols.push({ c: 'cone', x, z, r: e.w / 2, h: e.h }); break;
       case 'iceberg': e.w = (14 + r() * 10) * s; e.h = e.top = (8 + r() * 12) * s; e.cols.push({ c: 'cone', x, z, r: e.w / 2, h: e.h }); break;
-      case 'pillar': e.w = (7 + r() * 5) * s; box(x, e.h / 2, z, e.w / 2, e.h / 2, e.w * 0.45); break;
-      case 'tower': e.w = (10 + r() * 8) * s; box(x, e.h / 2, z, e.w / 2, e.h / 2, e.w / 2); break;
+      case 'pillar': e.w = (7 + r() * 5) * s * gk; box(x, e.h / 2, z, e.w / 2, e.h / 2, e.w * 0.45); break;
+      case 'tower': e.w = (10 + r() * 8) * s * (giant ? 1.4 : 1); box(x, e.h / 2, z, e.w / 2, e.h / 2, e.w / 2); break;
+      case 'barn': {
+        e.L = (12 + r() * 6) * s; e.D = (8 + r() * 3) * s; e.wh = (6 + r() * 2) * s; e.h = e.top = e.wh * 1.6;
+        box(x, e.wh / 2, z, e.L / 2, e.wh / 2, e.D / 2);
+        box(x, e.wh + (e.h - e.wh) / 3, z, e.L / 2, (e.h - e.wh) / 3, e.D / 4);
+        e.w = e.L;
+        break;
+      }
       case 'buoy': e.w = 2.5 * s; e.h = e.top = (4 + r() * 4) * s; cyl(e.w / 2, e.h); break;
       case 'windmill': {
-        e.w = 1.4 * s; e.h = (22 + r() * 22) * s; e.R = e.h * 0.42; e.top = e.h + e.R;
+        e.w = 1.4 * s; e.h = giant ? hB : (22 + r() * 22) * s; e.R = Math.min(e.h * 0.42, 30 * s); e.top = e.h + e.R;
         e.om = (1 + r() * 0.8) * (r() < 0.5 ? -1 : 1); e.ph = r() * 6.28;
         cyl(0.9 * s, e.h);
         e.cols.push({ c: 'blade', x: x + 1.2 * s, y: e.h, z, R: e.R, bw: 1.1 * s, om: e.om, ph: e.ph });
@@ -638,7 +648,7 @@ import * as W3 from './world3d.js';
     prev.x = P.x; prev.y = P.y; prev.z = P.z; prev.p = P.p; prev.h = P.h; prev.gam = P.gam; simAcc = 0;
     run = {
       dist: 0, coins: 0, distCoins: 0, pickCoins: 0, skimCoins: 0, gems: 0, picks: 0, rings: 0, balloons: 0, birds: 0,
-      combo: 0, comboT: 0, maxCombo: 0, skimT: 0, skimShow: 0, maxAlt: 0, t: 0, record: false, end: '', endT: 0,
+      combo: 0, comboT: 0, maxCombo: 0, nears: 0, skimT: 0, skimShow: 0, maxAlt: 0, t: 0, record: false, end: '', endT: 0,
       bestAtStart: S.best, newBiomes: [], fuelFlash: 0,
     };
     trailN = 0;
@@ -732,7 +742,7 @@ import * as W3 from './world3d.js';
     S.stats.earned += r.total; S.stats.rings += r.rings;
     // missions
     trackMission('dist', r.dist, true); trackMission('pick', r.picks, true); trackMission('combo', r.maxCombo, true);
-    trackMission('rings', r.rings); trackMission('flights', 1); trackMission('skim', r.skimT); trackMission('balloon', r.balloons);
+    trackMission('rings', r.rings); trackMission('flights', 1); trackMission('skim', r.skimT); trackMission('near', r.nears); trackMission('balloon', r.balloons);
     state = 'result';
     save();
     showResults();
@@ -827,10 +837,13 @@ import * as W3 from './world3d.js';
     let u = 0, ux = 0;
     if (stick.on) {
       const R = 55 * S.set.sens;
-      const dx = (stick.x - stick.ax) / R, dy = (stick.ay - stick.y) / R;
-      ux = Math.abs(dx) < 0.1 ? 0 : clamp(dx, -1, 1);
+      // flight-stick style by default: pull down (toward you) to climb
+      const dx = (stick.x - stick.ax) / R, dy = (S.set.invert ? stick.y - stick.ay : stick.ay - stick.y) / R;
+      // soft response curve: small moves give fine control, full deflection still turns hard
+      const curve = (d) => (Math.abs(d) < 0.08 ? 0 : Math.sign(d) * Math.pow(Math.min(1, (Math.abs(d) - 0.08) / 0.92), 1.6));
+      ux = curve(dx);
       if (S.set.control === 'hold') u = 1;
-      else u = Math.abs(dy) < 0.1 ? 0 : clamp(dy, -1, 1);
+      else u = curve(dy);
     }
     if (keyUp) u = 1; else if (keyDown) u = -1;
     if (keyLeft) ux = -1; else if (keyRight) ux = 1;
@@ -848,7 +861,7 @@ import * as W3 from './world3d.js';
       prev.x = P.x; prev.y = P.y; prev.z = P.z; prev.p = P.p; prev.h = P.h; prev.gam = P.gam;
       physStep(inp.u, inp.ux);
     }
-    P.bank += ((P.hr || 0) * 0.65 - P.bank) * Math.min(1, dt * 6);
+    P.bank += ((P.hr || 0) * 1.25 - P.bank) * Math.min(1, dt * 3);
     run.t += dt;
     if (run.comboT > 0) { run.comboT -= dt; if (run.comboT <= 0) run.combo = 0; }
     Sfx.engine(P.v / P.st.vbg, P.fuel > 0, P.rocketOn);
@@ -987,10 +1000,23 @@ import * as W3 from './world3d.js';
           break;
         }
         case 'obst': {
-          if (P.y - pr > e.top) break;
-          if (!hitObst(e, P.x, P.y, P.z, pr)) break;
-          endFlight('crash');
-          return;
+          if (e.t === 'arch' && !e.thr && Math.abs(ddx) < 2 * sig && Math.abs(ddz) < e.gap / 2 && P.y < e.h) {
+            e.thr = true; e.nm = true;
+            const v = Math.round(b.rate * 60 * sig * incomeNow);
+            addCoins(v, 'pick'); run.combo += 5; run.comboT = 1.6; run.nears++;
+            Sfx.ring(); buzz(20);
+            floatText(W * 0.5, H * 0.34, 'THREADED IT! +' + fmt(v), '#7be276', 28, 1.1);
+          }
+          if (P.y - pr - NEAR * sig > e.top) break;
+          if (hitObst(e, P.x, P.y, P.z, pr)) { endFlight('crash'); return; }
+          if (!e.nm && hitObst(e, P.x, P.y, P.z, pr + NEAR * sig)) {
+            e.nm = true; run.nears++;
+            const v = Math.round(b.rate * 20 * sig * incomeNow);
+            addCoins(v, 'pick'); run.combo += 3; run.comboT = 1.6; if (run.combo > run.maxCombo) run.maxCombo = run.combo;
+            Sfx.balloon(); buzz(10);
+            floatText(W * 0.5, H * 0.34, 'NEAR MISS! +' + fmt(v), '#7fd0ff', 24, 0.9);
+          }
+          break;
         }
       }
     }
@@ -1005,6 +1031,7 @@ import * as W3 from './world3d.js';
       trailHead = (trailHead + 1) % 64; if (trailN < 64) trailN++;
     }
   }
+  const NEAR = 2.4; // how close counts as a near miss, in plane-scale units
   const BALLOON_C = ['#ff5a5a', '#ffcf3a', '#5fd35a', '#3f8ff5', '#c56bff', '#ff8ad8'];
 
   function updateParticles(dt) {
@@ -1103,8 +1130,8 @@ import * as W3 from './world3d.js';
     }
     // tutorial
     if (S.tut < 2 && run.t > 0.6 && run.t < 7) {
-      txt(S.set.control === 'hold' ? 'HOLD to climb, slide LEFT / RIGHT to turn' : 'DRAG to steer: up, down, left, right', W / 2, H * 0.74, 19, '#fff');
-      txt('Grab coins, dodge obstacles, glide far!', W / 2, H * 0.74 + 24, 14, '#fff');
+      txt(S.set.control === 'hold' ? 'HOLD to climb, slide LEFT / RIGHT to turn' : (S.set.invert ? 'PULL DOWN to climb, PUSH UP to dive' : 'DRAG UP to climb, DOWN to dive'), W / 2, H * 0.74, 19, '#fff');
+      txt('Slide left / right to bank and turn', W / 2, H * 0.74 + 24, 14, '#fff');
     }
   }
   function drawTexts() {
@@ -1382,6 +1409,7 @@ import * as W3 from './world3d.js';
     skim: { txt: (n) => 'Skim the ground for ' + n + 's total' },
     balloon: { txt: (n) => 'Pop ' + n + ' balloons' },
     upgrade: { txt: (n) => 'Buy ' + n + ' upgrades' },
+    near: { txt: (n) => 'Get ' + n + ' near misses' },
   };
   function niceNum(n) { const p = Math.pow(10, Math.floor(Math.log10(Math.max(1, n)))); return Math.ceil(n / (p / 2)) * (p / 2); }
   function ensureMissions() {
@@ -1403,6 +1431,7 @@ import * as W3 from './world3d.js';
         case 'skim': target = 5 + Math.floor(r() * 3) * 5; break;
         case 'balloon': target = 2 + Math.floor(r() * 4); break;
         case 'upgrade': target = 5 + Math.floor(r() * 3) * 5; break;
+        case 'near': target = 5 + Math.floor(r() * 4) * 5; break;
       }
       return { k, target, prog: 0, claimed: false, gems: 1 + (i === 2 ? 1 : 0) };
     });
@@ -1572,6 +1601,7 @@ import * as W3 from './world3d.js';
     h += '<div class="set-row">Sound' + T('sound') + '</div>';
     h += '<div class="set-row">Vibration' + T('haptics') + '</div>';
     h += '<div class="set-row">Controls<div class="seg"><button data-c="drag" class="' + (S.set.control === 'drag' ? 'on' : '') + '">Drag stick</button><button data-c="hold" class="' + (S.set.control === 'hold' ? 'on' : '') + '">Hold to climb</button></div></div>';
+    h += '<div class="set-row"><span>Pull down to climb<br><small style="font-weight:600;opacity:.7">Like a real flight stick. Off = push up to climb</small></span>' + T('invert') + '</div>';
     h += '<div class="set-row">Stick size<input type="range" min="0.6" max="1.6" step="0.1" value="' + S.set.sens + '" id="sens"></div>';
     h += '<div class="set-row"><span>Performance mode<br><small style="font-weight:600;opacity:.7">Lower resolution, fewer particles</small></span>' + T('perf') + '</div>';
     h += '<h3>Cloud save</h3>';
