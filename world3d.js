@@ -119,6 +119,8 @@ export function init(canvas) {
   const coinG = new THREE.CylinderGeometry(1, 1, 0.24, 16); coinG.rotateZ(Math.PI / 2);
   pools.coin = new Pool(coinG, lam('#ffd23a', { emissive: '#b07a00', flatShading: false }), 500);
   pools.gem = new Pool(new THREE.OctahedronGeometry(1), lam('#3fb2ff', { emissive: '#0b3a80' }), 30);
+  pools.rfuel = new Pool(new THREE.CylinderGeometry(0.55, 0.55, 1.7, 12), lam('#a24bff', { emissive: '#4a1080' }), 20);
+  pools.rfuelTip = new Pool(new THREE.ConeGeometry(0.55, 0.7, 12), lam('#ffb43a', { emissive: '#7a3a00' }), 20);
   pools.fuel = new Pool(new THREE.BoxGeometry(1.2, 1.6, 0.8), lam('#e63946', { emissive: '#400' }), 30);
   const ringG = new THREE.TorusGeometry(1, 0.1, 8, 28); ringG.rotateY(Math.PI / 2);
   pools.ring = new Pool(ringG, lam('#ff9a1a', { emissive: '#7a3a00' }), 40);
@@ -392,6 +394,12 @@ export function frame(v) {
       case 'coin': pools.coin.add(e.x, e.y, e.z, s, s, s, t * 3 + e.x * 0.05); break;
       case 'gem': pools.gem.add(e.x, e.y + Math.sin(t * 3) * 0.3 * s, e.z, 1.1 * s, 1.6 * s, 1.1 * s, t * 2); break;
       case 'fuel': pools.fuel.add(e.x, e.y, e.z, s, s, s, t * 1.5); break;
+      case 'rfuel': {
+        const by = e.y + Math.sin(t * 2.5 + e.x) * 0.3 * s, tilt = Math.sin(t * 1.7) * 0.3;
+        pools.rfuel.add(e.x, by, e.z, 1.2 * s, 1.2 * s, 1.2 * s, t * 2, null, tilt);
+        pools.rfuelTip.add(e.x, by + 1.4 * s, e.z, 1.2 * s, 1.2 * s, 1.2 * s, t * 2, null, tilt);
+        break;
+      }
       case 'ring': pools.ring.add(e.x, e.y, e.z, e.r, e.r, e.r, 0); break;
       case 'balloon': {
         const by = e.y + Math.sin(t * 1.5 + e.x) * 0.3 * s;

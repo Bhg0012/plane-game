@@ -60,7 +60,7 @@ import * as W3 from './world3d.js';
   ];
 
   // ===================================================================== save
-  const VERSION = '1.12';
+  const VERSION = '1.13';
   const KEY = 'skyfling.save.v1';
   function defaults() {
     return {
@@ -425,6 +425,7 @@ import * as W3 from './world3d.js';
       const dz = (r() - 0.5) * 6 * sig, dyA = (2 + r() * 4) * sig;
       for (let i = 0; i < n; i++) fresh.push({ k: 'ring', x: bx + i * 16 * sig, y: by + Math.sin(i * 0.9) * dyA, z: bz + i * dz, r: 5 * sig, chain: ci, len: n, dead: false });
     } else if (r() < 0.5 && ci >= 1) fresh.push({ k: 'ring', x: x0 + r() * CH * sig, y: (8 + r() * ceil * 0.6) * sig, z: zc + (r() - 0.5) * SPREAD * sig, r: 5 * sig, dead: false });
+    if (S.lv.rocket > 0 && ci >= 2 && r() < 0.08) fresh.push({ k: 'rfuel', x: x0 + r() * CH * sig, y: (6 + r() * ceil * 0.55) * sig, z: zr(), dead: false });
     if (r() < 0.16 && ci >= 1) fresh.push({ k: 'fuel', x: x0 + r() * CH * sig, y: (5 + r() * ceil * 0.5) * sig, z: zr(), dead: false });
     if (r() < 0.22 && ci >= 2) fresh.push({ k: 'balloon', x: x0 + r() * CH * sig, y: (6 + r() * ceil * 0.5) * sig, z: zr(), hue: Math.floor(r() * 6), dead: false });
     if (r() < 0.18 && ci >= 1) fresh.push({ k: 'lift', x: x0 + r() * CH * sig, y: 0, z: zr(), w: 10 * sig, top: ceil * 0.9 * sig, dead: false });
@@ -644,9 +645,7 @@ import * as W3 from './world3d.js';
   const LAUNCH_PITCH = 0.42;
   function launch() {
     Sfx.init();
-    incomeNow = C.incomeMult(S.lv.income);
-    runSeed = (Math.random() * 1e9) | 0;
-    ents.length = 0; nextChunk = 0;
+    if (!ents.length) prepCourse(); // normally already built and visible from the hangar
     const power = aim.power;
     const ap = aimPos();
     P.x = ap.x; P.y = ap.y; P.z = ap.z;
@@ -656,7 +655,7 @@ import * as W3 from './world3d.js';
     run = {
       dist: 0, coins: 0, distCoins: 0, pickCoins: 0, skimCoins: 0, gems: 0, picks: 0, rings: 0, balloons: 0, birds: 0,
       combo: 0, comboT: 0, maxCombo: 0, nears: 0, swoops: 0, diving: false, diveTop: 0, rush: 0, nextRush: 25, booms: 0, boomArmed: false, chainId: -1, chainN: 0, path: [], pathT: 0, skimT: 0, skimShow: 0, maxAlt: 0, t: 0, record: false, end: '', endT: 0,
-      bestAtStart: S.best, newBiomes: [], fuelFlash: 0,
+      bestAtStart: S.best, newBiomes: [], fuelFlash: 0, rocketFlash: 0,
     };
     trailN = 0; fovKick = 0; timeScale = 1; slowHold = 0;
     ghostRun = loadGhost();
@@ -670,6 +669,14 @@ import * as W3 from './world3d.js';
     S.tut = Math.max(S.tut, 1);
   }
 
+  // Build the start of the course while you're in the hangar so you can see what's coming.
+  function prepCourse() {
+    resetPlane();
+    incomeNow = C.incomeMult(S.lv.income);
+    runSeed = (Math.random() * 1e9) | 0;
+    ents.length = 0; nextChunk = 0;
+    ensureWorld(420 * sig);
+  }
   // where the plane sits in the slingshot pocket while being pulled back
   function aimPos() {
     const L = 3 * sig * C.planeStats(S.lv.plane).scale * 1.3;
@@ -1026,6 +1033,16 @@ import * as W3 from './world3d.js';
           }
           break;
         }
+        case 'rfuel': {
+          const dy = e.y - P.y;
+          if (ddx * ddx + dy * dy + ddz * ddz < cr2 * 1.5) {
+            e.dead = true; P.rocket = Math.min(P.rk.time, Math.max(0, P.rocket) + P.rk.time * 0.6);
+            Sfx.rush(); buzz(15); run.rocketFlash = 0.8;
+            burstAt(e.x, e.y, e.z, 16, 8 * sig, 0.6, 0.6 * sig, '#c56bff', 0);
+            floatText(W * 0.5, H * 0.36, '+ROCKET FUEL', '#d99bff', 26, 1);
+          }
+          break;
+        }
         case 'ring': {
           const dy = e.y - P.y;
           if (Math.abs(ddx) < 1.4 * sig && dy * dy + ddz * ddz < e.r * e.r) {
@@ -1199,7 +1216,7 @@ import * as W3 from './world3d.js';
     // fuel / rocket
     const fx = 16, fy = top + 60;
     bar(fx, fy, 88, 16, P.st.fuel > 0 ? P.fuel / P.st.fuel : 0, run.fuelFlash > 0 ? '#ff7070' : '#ffcf3a', P.fuel > 0 ? 'ENGINE' : P.st.fuel > 0 ? 'GLIDING' : 'NO ENGINE');
-    if (S.lv.rocket > 0) bar(fx, fy + 22, 88, 16, P.rocket / P.rk.time, '#ff6a1a', 'ROCKET');
+    if (S.lv.rocket > 0) bar(fx, fy + 22, 88, 16, P.rocket / P.rk.time, run.rocketFlash > 0 ? '#d99bff' : '#ff6a1a', 'ROCKET');
     // altitude / speed
     txt('ALT ' + Math.floor(P.y) + ' m', W - 16, top + 70, 12, '#fff', 'right');
     txt('SPD ' + Math.floor(P.v * 3.6) + ' km/h', W - 16, top + 86, 12, '#fff', 'right');
@@ -1342,6 +1359,7 @@ import * as W3 from './world3d.js';
       gdt = dt * timeScale;
       updateFly(gdt);
       if (run.fuelFlash > 0) run.fuelFlash -= dt;
+      if (run.rocketFlash > 0) run.rocketFlash -= dt;
       if (run.skimShow > 0) run.skimShow -= dt;
       ensureWorld(P.x + 420 * sig);
       if ((gameT * 60 | 0) % 30 === 0) pruneWorld(Math.min(W3.cameraX(), P.x) - 40 * sig);
@@ -1475,6 +1493,7 @@ import * as W3 from './world3d.js';
     const prevModel = C.modelIndex(S.lv.plane);
     const partName = k === 'plane' ? C.nextPartName(S.lv.plane) : null;
     S.lv[k]++;
+    prepCourse(); // plane size / coin values changed: rebuild the course you're looking at
     Sfx.buy(); buzz(8);
     trackMission('upgrade', 1);
     const el = document.querySelector('.c-' + k); el.classList.remove('pop'); void el.offsetWidth; el.classList.add('pop');
@@ -1507,7 +1526,7 @@ import * as W3 from './world3d.js';
     Sfx.init();
     if (S.lv.rocket === 0) {
       if (S.gems < 1) { Sfx.deny(); toast('Need 1 gem - find them in the sky!'); return; }
-      S.gems--; S.lv.rocket = 1; Sfx.evolve(); save(); refreshUI();
+      S.gems--; S.lv.rocket = 1; prepCourse(); Sfx.evolve(); save(); refreshUI();
       openPanel('<h2>ROCKET UNLOCKED!</h2><p class="center">Hold the <b>BOOST</b> button while flying for a burst of rocket power. Upgrade it here for longer, stronger burns.</p><button class="btn" data-close>AWESOME</button>');
       return;
     }
@@ -1725,8 +1744,8 @@ import * as W3 from './world3d.js';
     if (updateReady) { writeNow(); location.reload(); return; }
     state = 'hangar';
     closePanel();
-    ents.length = 0; trailN = 0;
-    resetPlane(); rebuildPlane();
+    trailN = 0;
+    prepCourse(); rebuildPlane();
     $('hangar').classList.remove('hidden');
     snapCam = true;
     refreshUI();
@@ -1877,6 +1896,7 @@ import * as W3 from './world3d.js';
   resize();
   resetPlane();
   rebuildPlane();
+  prepCourse();
   W3.resetScenery(0, 0, sig);
   refreshUI();
   maybeWelcome();
