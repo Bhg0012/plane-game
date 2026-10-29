@@ -60,7 +60,7 @@ import * as W3 from './world3d.js';
   ];
 
   // ===================================================================== save
-  const VERSION = '1.10';
+  const VERSION = '1.11';
   const KEY = 'skyfling.save.v1';
   function defaults() {
     return {
@@ -1343,7 +1343,19 @@ import * as W3 from './world3d.js';
   // ===================================================================== UI
   const modal = $('modal'), panel = $('panel');
   function openPanel(html, onBind, closable) {
-    panel.innerHTML = html;
+    // split into a fixed header (title + tabs), a scrolling body, and a fixed footer (close button)
+    const tmp = document.createElement('div'); tmp.innerHTML = html;
+    const head = document.createElement('div'), body = document.createElement('div'), foot = document.createElement('div');
+    head.className = 'p-head'; body.className = 'p-body'; foot.className = 'p-foot';
+    const kids = Array.from(tmp.children);
+    let i = 0;
+    while (i < kids.length && (kids[i].tagName === 'H2' || kids[i].classList.contains('tabs')) && i < 2) head.appendChild(kids[i++]);
+    let end = kids.length;
+    if (end > i && kids[end - 1].matches('.btn[data-close]')) end--;
+    for (let j = i; j < end; j++) body.appendChild(kids[j]);
+    for (let j = end; j < kids.length; j++) foot.appendChild(kids[j]);
+    panel.innerHTML = '';
+    panel.append(head, body, foot);
     modal.classList.remove('hidden');
     modal.onclick = closable === false ? null : (e) => { if (e.target === modal) closePanel(); };
     if (onBind) onBind(panel);
