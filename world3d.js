@@ -6,7 +6,7 @@ const C = window.Core;
 const { MODELS, BIOMES } = C;
 
 let renderer, scene, camera, hemi, sun;
-let sky, skyCols, ground, groundTex, shadow;
+let sky, skyCols, ground, groundTex, shadow, sunDisc, sunGlow;
 let planeGroup = null, prop = null, jetFlame = null, rocketFlame = null;
 let site, bandA, bandB, bestStripe, bestPole, bestFlag;
 let particles, pPos, pCol, pSize, pUniforms;
@@ -65,7 +65,7 @@ class Pool {
   }
 }
 const pools = {};
-let clouds = [], hills = [];
+let clouds = [], hills = [], decos = [];
 
 // ----------------------------------------------------------------- init
 export function init(canvas) {
@@ -101,6 +101,10 @@ export function init(canvas) {
 
   shadow = new THREE.Mesh(new THREE.CircleGeometry(0.5, 20).rotateX(-Math.PI / 2), new THREE.MeshBasicMaterial({ color: '#000', transparent: true, opacity: 0.25, depthWrite: false }));
   scene.add(shadow);
+  sunDisc = new THREE.Mesh(new THREE.CircleGeometry(1, 28), new THREE.MeshBasicMaterial({ color: '#fff6d0', fog: false, depthWrite: false }));
+  sunGlow = new THREE.Mesh(new THREE.CircleGeometry(1, 28), new THREE.MeshBasicMaterial({ color: '#fff2b0', transparent: true, opacity: 0.25, fog: false, depthWrite: false }));
+  sunDisc.renderOrder = sunGlow.renderOrder = -0.5;
+  scene.add(sunGlow, sunDisc);
 
   // pools
   const coinG = new THREE.CylinderGeometry(1, 1, 0.24, 16); coinG.rotateZ(Math.PI / 2);
@@ -121,6 +125,12 @@ export function init(canvas) {
   pools.box = new Pool(base0(new THREE.BoxGeometry(1, 1, 1)), lam('#fff'), 900, true);
   pools.cyl = new Pool(base0(new THREE.CylinderGeometry(0.5, 0.5, 1, 12)), lam('#fff'), 300, true);
   pools.dome = new Pool(new THREE.SphereGeometry(0.5, 12, 6, 0, Math.PI * 2, 0, Math.PI / 2), lam('#fff'), 120, true);
+  pools.rock = new Pool(new THREE.IcosahedronGeometry(0.5, 0), lam('#fff'), 160, true);
+  pools.ell = new Pool(new THREE.SphereGeometry(1, 16, 10), lam('#fff'), 60, true);
+  pools.blade = new Pool(new THREE.BoxGeometry(0.12, 1, 0.5).translate(0, 0.5, 0), lam('#f2f2f2'), 120, true);
+  pools.spike = new Pool(new THREE.OctahedronGeometry(1, 0), lam('#2a2a2a'), 60);
+  pools.grass = new Pool(base0(new THREE.ConeGeometry(0.5, 1, 4)), lam('#fff'), 260, true);
+  pools.flower = new Pool(new THREE.IcosahedronGeometry(0.5, 0), new THREE.MeshLambertMaterial({ color: '#ffffff', emissive: '#333333' }), 120, true);
   pools.cloud = new Pool(new THREE.IcosahedronGeometry(1, 1), new THREE.MeshLambertMaterial({ color: '#ffffff', emissive: '#8a96a8' }), 90);
   pools.hill = new Pool(base0(new THREE.ConeGeometry(0.5, 1, 6)), lam('#fff'), 40, true);
 
@@ -257,7 +267,10 @@ export function resetScenery(x, z, sig) {
   clouds = []; hills = [];
   for (let i = 0; i < 18; i++) clouds.push(newCloud(x + rnd(-40, 380) * sig, z, sig));
   for (let i = 0; i < 22; i++) hills.push(newHill(x + rnd(-60, 380) * sig, z, sig));
+  decos = [];
+  for (let i = 0; i < 120; i++) decos.push(newDeco(x + rnd(-30, 260) * sig, z, sig));
 }
+function newDeco(x, z, sig) { return { x, z: z + rnd(-70, 70) * sig, s: rnd(0.6, 1.4) * sig, f: Math.random() < 0.3, hue: Math.random() }; }
 function newCloud(x, z, sig) { const s = rnd(5, 11) * sig; return { x, y: rnd(25, 110) * sig, z: z + rnd(-180, 180) * sig, s, puffs: 2 + (Math.random() * 3 | 0) }; }
 function newHill(x, z, sig) { const side = Math.random() < 0.5 ? -1 : 1; return { x, z: z + side * rnd(140, 300) * sig, w: rnd(60, 140) * sig, h: rnd(30, 90) * sig }; }
 
@@ -360,13 +373,26 @@ export function frame(v) {
       }
       case 'lift': pools.lift.add(e.x, 0, e.z, e.w, e.top, e.w, t * 0.5); break;
       case 'bird': pools.bird.add(e.x, e.y, e.z, 1.6 * s, 1.6 * s, (1.4 + Math.sin(t * 12 + e.ph) * 0.3) * s, 0, colorOf(e.c)); break;
-      case 'obst': drawObst(e); break;
+      case 'obst': drawObst(e, t); break;
     }
   }
   // clouds & hills drift past and recycle ahead of the plane
   for (const c of clouds) {
     if (c.x < v.camX - 60 * s) Object.assign(c, newCloud(v.px + rnd(300, 420) * s, v.pz, s));
     for (let j = 0; j < c.puffs; j++) pools.cloud.add(c.x + j * c.s * 0.9, c.y + (j % 2) * c.s * 0.25, c.z + (j % 3) * c.s * 0.3, c.s * (1 - j * 0.12), c.s * 0.7, c.s * 0.8, j);
+  }
+  // ground detail: grass tufts and flowers (or ice/rubble/foam depending on the zone)
+  const B = BIOMES[bi];
+  const tuftC = colorOf(B.near), edgeC = colorOf(B.edge);
+  if (!B.water && bi < 9) {
+    for (const d of decos) {
+      if (d.x < v.camX - 20 * s) Object.assign(d, newDeco(v.px + rnd(200, 280) * s, v.pz, s));
+      if (d.f) pools.flower.add(d.x, d.s * 0.4, d.z, d.s * 0.7, d.s * 0.7, d.s * 0.7, 0, col.setHSL(d.hue, 0.8, 0.65));
+      else {
+        pools.grass.add(d.x, 0, d.z, d.s * 0.6, d.s * 1.4, d.s * 0.6, d.hue * 6, d.hue < 0.5 ? tuftC : edgeC);
+        pools.grass.add(d.x + d.s * 0.5, 0, d.z + d.s * 0.3, d.s * 0.5, d.s * 1.0, d.s * 0.5, d.hue * 3, tuftC);
+      }
+    }
   }
   const hillC = colorOf(BIOMES[bi].far);
   for (const h of hills) {
@@ -419,17 +445,75 @@ export function frame(v) {
   groundTex.repeat.set(gsize / tile, gsize / tile);
   groundTex.offset.set(camera.position.x / tile, -camera.position.z / tile);
   sky.position.copy(camera.position); sky.scale.setScalar(camera.far * 0.9);
+  const sd = camera.far * 0.8;
+  sunDisc.position.set(camera.position.x + sd * 0.75, camera.position.y + sd * 0.42, camera.position.z - sd * 0.5);
+  sunDisc.scale.setScalar(sd * 0.035); sunDisc.lookAt(camera.position);
+  sunGlow.position.copy(sunDisc.position); sunGlow.scale.setScalar(sd * 0.08); sunGlow.lookAt(camera.position);
   renderer.render(scene, camera);
 }
 const BALLOON_C = ['#ff5a5a', '#ffcf3a', '#5fd35a', '#3f8ff5', '#c56bff', '#ff8ad8'];
 
-function drawObst(e) {
-  const x = e.x, z = e.z, w = e.w, h = e.h, sd = e.seed;
+function drawObst(e, t) {
+  const x = e.x, z = e.z, w = e.w, h = e.h, sd = e.seed, s = w / 4.5;
   switch (e.t) {
-    case 'tree':
+    case 'tree': {
       pools.trunk.add(x, 0, z, w * 0.22, h * 0.6, w * 0.22, 0);
-      pools.canopy.add(x, h * 0.68, z, w * 1.15, h * 0.7, w * 1.15, sd * 6, col.setHSL(0.27 + sd * 0.06, 0.55, 0.32 + sd * 0.1));
+      const c1 = col.setHSL(0.27 + sd * 0.06, 0.55, 0.3 + sd * 0.08);
+      pools.canopy.add(x, h * 0.62, z, w * 1.15, h * 0.62, w * 1.15, sd * 6, c1);
+      pools.canopy.add(x + w * 0.1, h * 0.86, z - w * 0.05, w * 0.75, h * 0.38, w * 0.75, sd * 9, col.setHSL(0.28 + sd * 0.06, 0.55, 0.4 + sd * 0.08));
       break;
+    }
+    case 'rock':
+      pools.rock.add(x, h * 0.35, z, w, h * 1.1, w * 0.9, sd * 6, colorOf(e.col), sd * 2, sd * 3);
+      pools.rock.add(x + w * 0.35, h * 0.15, z + w * 0.25, w * 0.45, h * 0.5, w * 0.45, sd * 9, colorOf(e.col));
+      break;
+    case 'iceberg':
+      pools.cone.add(x, 0, z, w, h, w * 0.85, sd * 6, colorOf('#e6f6ff'));
+      pools.cone.add(x + w * 0.25, 0, z - w * 0.15, w * 0.55, h * 0.7, w * 0.5, sd * 4, colorOf('#bfe3f7'));
+      break;
+    case 'windmill': {
+      const g = e.sg;
+      pools.cyl.add(x, 0, z, 1.8 * g, h, 1.8 * g, 0, colorOf('#f4f4f4'));
+      pools.box.add(x, h - 1 * g, z, 3 * g, 2 * g, 2 * g, 0, colorOf('#e0e0e0'));
+      pools.ell.add(x + 1.4 * g, h, z, 0.9 * g, 0.9 * g, 0.9 * g, 0, colorOf('#dddddd'));
+      for (let k = 0; k < 3; k++) pools.blade.add(x + 1.2 * g, h, z, 2 * g, e.R, 4.4 * g, 0, colorOf(k === 0 ? '#ff5a5a' : '#f7f7f7'), e.ph + e.om * t + k * 2.0944);
+      break;
+    }
+    case 'arch': {
+      const off = e.gap / 2 + e.leg / 2, c = colorOf(e.col), c2 = colorOf('#c96b3f');
+      pools.box.add(x, 0, z - off, 6 * (e.leg / 5), e.h, e.leg, sd, c);
+      pools.box.add(x, 0, z + off, 6 * (e.leg / 5), e.h, e.leg, -sd, c);
+      pools.box.add(x, e.h, z, 6 * (e.leg / 5), e.th, off * 2 + e.leg, 0, c2);
+      break;
+    }
+    case 'ship': {
+      const L = e.L, u = L / 30;
+      pools.box.add(x, 0, z, L, 5 * u, 9 * u, 0, colorOf('#c0392b'));
+      pools.box.add(x, 4.2 * u, z, L * 1.01, 1 * u, 9.1 * u, 0, colorOf('#f4f4f4'));
+      pools.box.add(x - L * 0.15, 5 * u, z, 10 * u, 6.5 * u, 6 * u, 0, colorOf('#ffffff'));
+      pools.cyl.add(x - L * 0.15, 11 * u, z, 2 * u, 3 * u, 2 * u, 0, colorOf('#1b2240'));
+      break;
+    }
+    case 'blimp': {
+      const y = e.y + Math.sin(t * 0.6 + sd * 6) * 0.15 * e.b;
+      pools.ell.add(x, y, z, e.a, e.b, e.b, 0, colorOf(sd < 0.5 ? '#e8e8f0' : '#ffcf3a'));
+      pools.box.add(x + e.a * 0.1, y - e.b * 1.3, z, e.a * 0.35, e.b * 0.35, e.b * 0.4, 0, colorOf('#3a3f55'));
+      pools.box.add(x - e.a * 0.85, y, z, e.a * 0.25, e.b * 1.2, e.b * 0.1, 0, colorOf('#ff3b5c'));
+      pools.box.add(x - e.a * 0.85, y - e.b * 0.05, z, e.a * 0.25, e.b * 0.1, e.b * 1.2, 0, colorOf('#ff3b5c'));
+      break;
+    }
+    case 'mine': {
+      pools.ell.add(x, e.y, z, e.rad, e.rad, e.rad, t * 0.5, colorOf('#8a1f1f'));
+      pools.spike.add(x, e.y, z, e.rad * 1.5, e.rad * 1.5, e.rad * 1.5, t * 0.5);
+      break;
+    }
+    case 'satellite': {
+      const u = e.sg;
+      pools.box.add(x, e.y - 1.6 * u, z, 3.2 * u, 3.2 * u, 3.2 * u, 0, colorOf('#d8b04a'));
+      pools.box.add(x, e.y - 1.2 * u, z, 0.2 * u, 2.4 * u, 15 * u, 0, colorOf('#2a4a9a'));
+      pools.cyl.add(x, e.y + 1.6 * u, z, 0.3 * u, 2 * u, 0.3 * u, 0, colorOf('#cccccc'));
+      break;
+    }
     case 'silo':
       pools.cyl.add(x, 0, z, w, h, w, 0, colorOf(sd < 0.5 ? '#c0392b' : '#d8d2c4'));
       pools.dome.add(x, h, z, w, w, w, 0, colorOf('#e6e6e6'));

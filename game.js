@@ -70,7 +70,8 @@ import * as W3 from './world3d.js';
       missions: { day: '', list: [] },
       paints: [0], paint: 0, trails: [0], trail: 0,
       set: { sound: true, haptics: true, control: 'drag', sens: 1, perf: false },
-      tut: 0,
+      tut: 0, savedAt: 0,
+      sync: { code: '', asked: false, last: 0 },
       stats: { earned: 0, rings: 0, crashes: 0, playMs: 0 },
     };
   }
@@ -95,17 +96,89 @@ import * as W3 from './world3d.js';
   }
   let S = load();
   let saveTimer = 0;
+  let dirtyCloud = false;
   function writeNow() {
     clearTimeout(saveTimer); saveTimer = 0;
+    S.savedAt = Date.now();
+    dirtyCloud = true;
     try {
       const str = JSON.stringify(S);
       localStorage.setItem(KEY, str);
       localStorage.setItem(KEY + '.bak', str);
     } catch (e) { /* storage full or blocked */ }
+    Cloud.schedule();
   }
   function save() { if (!saveTimer) saveTimer = setTimeout(writeNow, 300); }
-  window.addEventListener('pagehide', writeNow);
-  document.addEventListener('visibilitychange', () => { if (document.hidden) { writeNow(); if (state === 'fly') pause(); } });
+  window.addEventListener('pagehide', () => { writeNow(); Cloud.push(true); });
+  document.addEventListener('visibilitychange', () => {
+    if (document.hidden) { writeNow(); Cloud.push(true); if (state === 'fly') pause(); }
+    else Cloud.pull();
+  });
+
+  // ---------------------------------------------------------------- cloud sync (Supabase)
+  // Each player gets a 6-character sync code. Entering it on another device loads the same save;
+  // after that every device pushes changes and pulls the newest save when it opens.
+  const Cloud = (() => {
+    const cfg = window.SKYFLING_SYNC || {};
+    const ok = () => !!(cfg.url && cfg.key);
+    const ALPHA = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789';
+    let timer = 0, busy = false, status = '';
+    async function rpc(fn, body, keepalive) {
+      const headers = { apikey: cfg.key, 'Content-Type': 'application/json' };
+      if (!cfg.key.startsWith('sb_')) headers.Authorization = 'Bearer ' + cfg.key; // legacy anon JWT keys
+      const r = await fetch(cfg.url.replace(/\/+$/, '') + '/rest/v1/rpc/' + fn, { method: 'POST', headers, body: JSON.stringify(body), keepalive: !!keepalive });
+      if (!r.ok) throw new Error('sync ' + r.status);
+      const t = await r.text();
+      return t && t !== 'null' ? JSON.parse(t) : null;
+    }
+    const clean = (c) => String(c || '').toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 6);
+    function payload() { const d = JSON.parse(JSON.stringify(S)); delete d.set; return d; } // settings stay per-device
+    function adopt(data) {
+      const keepSet = S.set, keepSync = S.sync;
+      S = merge(defaults(), data); S.set = keepSet; S.sync = keepSync;
+      try { localStorage.setItem(KEY, JSON.stringify(S)); localStorage.setItem(KEY + '.bak', JSON.stringify(S)); } catch (e) { /* blocked */ }
+      if (state === 'hangar') { resetPlane(); rebuildPlane(); refreshUI(); }
+    }
+    async function push(keepalive) {
+      if (!ok() || !S.sync.code || !dirtyCloud || busy) return;
+      busy = true;
+      try { await rpc('put_save', { p_code: S.sync.code, p_data: payload() }, keepalive); dirtyCloud = false; S.sync.last = Date.now(); status = 'ok'; }
+      catch (e) { status = 'offline'; }
+      busy = false;
+    }
+    function schedule() { if (ok() && S.sync.code && !timer) timer = setTimeout(() => { timer = 0; push(); }, 3000); }
+    async function pull() {
+      if (!ok() || !S.sync.code || state !== 'hangar') return;
+      try {
+        const data = await rpc('get_save', { p_code: S.sync.code });
+        status = 'ok';
+        if (data && (data.savedAt || 0) > (S.savedAt || 0) + 1000) { adopt(data); toast('Progress synced from your other device'); }
+        else if (!data || (data.savedAt || 0) < (S.savedAt || 0) - 1000) { dirtyCloud = true; push(); }
+      } catch (e) { status = 'offline'; }
+    }
+    async function create() {
+      for (let tries = 0; tries < 5; tries++) {
+        let c = '';
+        for (let i = 0; i < 6; i++) c += ALPHA[Math.floor(Math.random() * ALPHA.length)];
+        if (await rpc('get_save', { p_code: c })) continue;
+        S.sync.code = c; dirtyCloud = true; writeNow(); await push();
+        return c;
+      }
+      throw new Error('could not create code');
+    }
+    async function link(code) {
+      code = clean(code);
+      if (code.length !== 6) throw new Error('Codes are 6 letters/numbers');
+      const data = await rpc('get_save', { p_code: code });
+      if (!data) throw new Error('No save found for ' + code);
+      S.sync.code = code;
+      adopt(data);
+      S.sync.last = Date.now();
+      writeNow();
+      return data;
+    }
+    return { ok, push, pull, schedule, create, link, clean, status: () => status };
+  })();
   if (navigator.storage && navigator.storage.persist) navigator.storage.persist().catch(() => {});
 
   // ===================================================================== audio
@@ -329,15 +402,13 @@ import * as W3 from './world3d.js';
     const val = Math.max(1, Math.round(4 * sig * b.rate * incomeNow));
     const fresh = [], obst = [];
     if (ci >= 1) {
-      const tries = 3 + Math.floor(b.density * 9);
+      const tries = 4 + Math.floor(b.density * 10);
+      const list = BIOME_OBST[bi];
       for (let i = 0; i < tries; i++) {
         if (r() > b.density * 0.7) continue;
-        const h = (b.hMin + r() * (b.hMax - b.hMin)) * sig;
-        let w = 3, tri = false, box = false;
-        if (b.obst === 'tree') w = 4.5; else if (b.obst === 'pine') { w = 6; tri = true; } else if (b.obst === 'spire') { w = 9; tri = true; }
-        else if (b.obst === 'tower') { w = 10 + r() * 8; box = true; } else if (b.obst === 'pillar') { w = 7 + r() * 5; box = true; } else if (b.obst === 'silo') w = 5;
-        else if (b.obst === 'cactus') w = 2.6; else if (b.obst === 'buoy') w = 2.5;
-        obst.push({ k: 'obst', t: b.obst, x: x0 + r() * CH * sig, y: 0, z: zr(), w: w * sig, h, tri, box, seed: r(), dead: false });
+        const o = makeObst(list[Math.floor(r() * list.length)], x0 + r() * CH * sig, zr(), b, r, ceil);
+        obst.push(o);
+        if (o.t === 'arch') makeCoinGroup(r, o.x - 12 * sig, o.z, o.h * 0.45, val, fresh); // thread the needle
       }
     }
     const groups = ci === 0 ? 1 : 2 + (r() < 0.5 ? 1 : 0);
@@ -358,12 +429,133 @@ import * as W3 from './world3d.js';
     }
     // keep pickups out of obstacles
     for (const e of fresh) {
-      for (const o of obst) if (Math.abs(e.x - o.x) < o.w / 2 + 3 * sig && Math.abs(e.z - o.z) < o.w / 2 + 3 * sig && e.y < o.h + 3 * sig) e.y = o.h + 3 * sig + (e.k === 'ring' ? e.r : 0);
+      for (const o of obst) if (hitObst(o, e.x, e.y, e.z, (e.k === 'ring' ? e.r : 0) + 2.5 * sig)) e.y = o.top + 3 * sig + (e.k === 'ring' ? e.r : 0);
       if (e.k === 'bird') e.y0 = e.y;
     }
     for (const o of obst) ents.push(o);
     for (const e of fresh) ents.push(e);
   }
+  // Obstacles: each has a list of simple collision shapes, so what you see is what you hit.
+  const BIOME_OBST = [
+    ['tree', 'tree', 'tree', 'rock'],
+    ['silo', 'windmill', 'tree', 'tree'],
+    ['cactus', 'cactus', 'rock', 'arch'],
+    ['pillar', 'pillar', 'arch', 'rock'],
+    ['pine', 'pine', 'iceberg', 'rock'],
+    ['tower', 'tower', 'tower', 'blimp'],
+    ['buoy', 'ship', 'iceberg', 'blimp'],
+    ['spire', 'spire', 'rock', 'windmill'],
+    ['windmill', 'tower', 'mine', 'mine'],
+    ['spire', 'mine', 'blimp', 'mine'],
+    ['satellite', 'mine', 'spire', 'satellite'],
+  ];
+  const ROCK_C = ['#8a8f96', '#9a8f7a', '#c9a46a', '#a4562f', '#cfe3f2', '#7a8496', '#6a7480', '#3a2f2f', '#5a6470', '#4a5470', '#6a6a78'];
+  function makeObst(t, x, z, b, r, ceil) {
+    const s = sig, bi = BIOMES.indexOf(b);
+    const hB = (b.hMin + r() * (b.hMax - b.hMin)) * s;
+    const e = { k: 'obst', t, x, y: 0, z, w: 4 * s, h: hB, top: hB, seed: r(), cols: [], dead: false, col: '', sg: s };
+    const cyl = (r0, y1, y0) => e.cols.push({ c: 'cyl', x, z, r: r0, y0: y0 || 0, y1 });
+    const box = (cx, cy, cz, hx, hy, hz) => e.cols.push({ c: 'box', x0: cx - hx, x1: cx + hx, y0: cy - hy, y1: cy + hy, z0: cz - hz, z1: cz + hz });
+    switch (t) {
+      case 'tree': e.w = 4.5 * s; cyl(e.w * 0.5, e.h); break;
+      case 'rock': e.w = (5 + r() * 6) * s; e.h = e.top = e.w * 0.75; e.col = ROCK_C[bi]; cyl(e.w * 0.42, e.h * 0.9); break;
+      case 'silo': e.w = 5 * s; e.top = e.h + e.w / 2; cyl(e.w / 2, e.top); break;
+      case 'cactus': e.w = 2.6 * s; cyl(e.w * 0.6, e.h); break;
+      case 'pine': e.w = 6 * s; e.cols.push({ c: 'cone', x, z, r: e.w / 2, h: e.h }); break;
+      case 'spire': e.w = 9 * s; e.cols.push({ c: 'cone', x, z, r: e.w / 2, h: e.h }); break;
+      case 'iceberg': e.w = (14 + r() * 10) * s; e.h = e.top = (8 + r() * 12) * s; e.cols.push({ c: 'cone', x, z, r: e.w / 2, h: e.h }); break;
+      case 'pillar': e.w = (7 + r() * 5) * s; box(x, e.h / 2, z, e.w / 2, e.h / 2, e.w * 0.45); break;
+      case 'tower': e.w = (10 + r() * 8) * s; box(x, e.h / 2, z, e.w / 2, e.h / 2, e.w / 2); break;
+      case 'buoy': e.w = 2.5 * s; e.h = e.top = (4 + r() * 4) * s; cyl(e.w / 2, e.h); break;
+      case 'windmill': {
+        e.w = 1.4 * s; e.h = (22 + r() * 22) * s; e.R = e.h * 0.42; e.top = e.h + e.R;
+        e.om = (1 + r() * 0.8) * (r() < 0.5 ? -1 : 1); e.ph = r() * 6.28;
+        cyl(0.9 * s, e.h);
+        e.cols.push({ c: 'blade', x: x + 1.2 * s, y: e.h, z, R: e.R, bw: 1.1 * s, om: e.om, ph: e.ph });
+        e.w = 3 * s;
+        break;
+      }
+      case 'arch': {
+        e.gap = (16 + r() * 8) * s; e.h = (16 + r() * 14) * s; e.th = 4 * s; e.leg = 5 * s; e.top = e.h + e.th;
+        const off = e.gap / 2 + e.leg / 2;
+        box(x, e.h / 2, z - off, 3 * s, e.h / 2, e.leg / 2);
+        box(x, e.h / 2, z + off, 3 * s, e.h / 2, e.leg / 2);
+        box(x, e.h + e.th / 2, z, 3 * s, e.th / 2, off + e.leg / 2);
+        e.w = 6 * s; e.col = ROCK_C[bi];
+        break;
+      }
+      case 'ship': {
+        e.L = (26 + r() * 10) * s; e.h = 5 * s; e.top = 12 * s;
+        box(x, e.h / 2, z, e.L / 2, e.h / 2, 4.5 * s);
+        box(x - e.L * 0.15, 8 * s, z, 5 * s, 3.5 * s, 3 * s);
+        e.w = e.L;
+        break;
+      }
+      case 'blimp': {
+        e.a = (14 + r() * 6) * s; e.b = (5 + r() * 2) * s;
+        e.y = Math.min(ceil * 0.75 * s, (22 + r() * 35) * s); e.top = e.y + e.b; e.h = e.top;
+        e.cols.push({ c: 'ell', x, y: e.y, z, a: e.a, b: e.b });
+        e.w = e.a * 2;
+        break;
+      }
+      case 'mine': {
+        e.y = (8 + r() * ceil * 0.65) * s; e.rad = 2.4 * s; e.top = e.y + e.rad; e.h = e.top;
+        e.cols.push({ c: 'ell', x, y: e.y, z, a: e.rad * 1.15, b: e.rad * 1.15 });
+        e.w = 5 * s;
+        break;
+      }
+      case 'satellite': {
+        e.y = (10 + r() * ceil * 0.6) * s; e.top = e.y + 2 * s; e.h = e.top;
+        box(x, e.y, z, 1.6 * s, 1.6 * s, 1.6 * s);
+        box(x, e.y, z, 0.4 * s, 1.2 * s, 7.5 * s);
+        e.w = 4 * s;
+        break;
+      }
+    }
+    return e;
+  }
+  function hitObst(e, x, y, z, pr) {
+    const cs = e.cols;
+    for (let i = 0; i < cs.length; i++) {
+      const c = cs[i];
+      switch (c.c) {
+        case 'cyl': {
+          if (y - pr > c.y1 || y + pr < c.y0) break;
+          const dx = x - c.x, dz = z - c.z, rr = c.r + pr;
+          if (dx * dx + dz * dz < rr * rr) return true;
+          break;
+        }
+        case 'cone': {
+          if (y - pr > c.h) break;
+          const rr = c.r * Math.max(0, 1 - y / c.h) + pr, dx = x - c.x, dz = z - c.z;
+          if (dx * dx + dz * dz < rr * rr) return true;
+          break;
+        }
+        case 'box':
+          if (x + pr > c.x0 && x - pr < c.x1 && y + pr > c.y0 && y - pr < c.y1 && z + pr > c.z0 && z - pr < c.z1) return true;
+          break;
+        case 'ell': {
+          const dx = (x - c.x) / (c.a + pr), dy = (y - c.y) / (c.b + pr), dz = (z - c.z) / (c.b + pr);
+          if (dx * dx + dy * dy + dz * dz < 1) return true;
+          break;
+        }
+        case 'blade': { // three spinning blades: time it right and you slip between them
+          if (Math.abs(x - c.x) > c.bw + pr) break;
+          const dy = y - c.y, dz = z - c.z, rr = Math.hypot(dy, dz);
+          if (rr > c.R + pr) break;
+          if (rr < 1.6 * sig) return true;
+          const th = Math.atan2(dz, dy);
+          for (let k = 0; k < 3; k++) {
+            const d = th - (c.ph + c.om * gameT + k * 2.0944);
+            if (Math.cos(d) > 0 && Math.abs(rr * Math.sin(d)) < c.bw + pr) return true;
+          }
+          break;
+        }
+      }
+    }
+    return false;
+  }
+
   function ensureWorld(aheadX) { while (nextChunk * CH * sig < aheadX) genChunk(nextChunk++); }
   function pruneWorld(behindX) {
     let j = 0;
@@ -666,7 +858,7 @@ import * as W3 from './world3d.js';
       const bx = P.x - Math.cos(P.h) * cp * L, by = P.y - Math.sin(P.p) * L, bz = P.z - Math.sin(P.h) * cp * L;
       const r = () => (Math.random() - 0.5) * 4 * sig;
       if (P.rocketOn) spawn(bx, by, bz, P.v * 0.6 * Math.cos(P.h) + r(), r(), P.v * 0.6 * Math.sin(P.h) + r(), 0.3, 0.5 * sig, Math.random() < 0.5 ? '#ffb43a' : '#ff6a1a', 0);
-      else if (Math.random() < 0.35) spawn(bx, by, bz, -P.v * 0.1, (Math.random() - 0.3) * sig, 0, 0.6, 0.6 * sig, '#ffffff', 0.5 * sig, 0.7);
+      else if (Math.random() < 0.35) spawn(bx, by, bz, -P.v * 0.1, (Math.random() - 0.3) * sig, 0, 0.6, 0.4 * sig, '#ffffff', 0.5 * sig, 0.6);
     }
   }
 
@@ -724,7 +916,7 @@ import * as W3 from './world3d.js';
       const e = ents[i];
       if (e.dead) continue;
       const ddx = e.x - P.x;
-      if (ddx > 25 * sig || ddx < -25 * sig) continue;
+      if (ddx > 30 * sig || ddx < -30 * sig) continue;
       const ddz = e.z - P.z;
       switch (e.k) {
         case 'coin': {
@@ -795,13 +987,8 @@ import * as W3 from './world3d.js';
           break;
         }
         case 'obst': {
-          if (P.y - pr > e.h) break;
-          const half = e.w / 2;
-          if (e.box) { if (Math.abs(ddx) > half + pr || Math.abs(ddz) > half + pr) break; }
-          else {
-            const rad = e.tri ? half * Math.max(0, 1 - P.y / e.h) : half;
-            if (ddx * ddx + ddz * ddz > (rad + pr) * (rad + pr)) break;
-          }
+          if (P.y - pr > e.top) break;
+          if (!hitObst(e, P.x, P.y, P.z, pr)) break;
           endFlight('crash');
           return;
         }
@@ -1387,7 +1574,18 @@ import * as W3 from './world3d.js';
     h += '<div class="set-row">Controls<div class="seg"><button data-c="drag" class="' + (S.set.control === 'drag' ? 'on' : '') + '">Drag stick</button><button data-c="hold" class="' + (S.set.control === 'hold' ? 'on' : '') + '">Hold to climb</button></div></div>';
     h += '<div class="set-row">Stick size<input type="range" min="0.6" max="1.6" step="0.1" value="' + S.set.sens + '" id="sens"></div>';
     h += '<div class="set-row"><span>Performance mode<br><small style="font-weight:600;opacity:.7">Lower resolution, fewer particles</small></span>' + T('perf') + '</div>';
-    h += '<h3>Progress</h3><p>Your progress saves automatically on this device after every flight and purchase. Use a backup code to move it to another device.</p>';
+    h += '<h3>Cloud save</h3>';
+    if (!Cloud.ok()) h += '<p>Cross-device sync isn\'t switched on for this copy of the game yet.</p>';
+    else if (S.sync.code) {
+      h += '<p>This device is synced. Enter this code on your other devices to play with the same progress:</p><div class="big-num" style="letter-spacing:6px">' + S.sync.code + '</div>';
+      h += '<p class="sub">' + (Cloud.status() === 'offline' ? 'Offline - will sync when you\'re back online' : S.sync.last ? 'Last synced ' + new Date(S.sync.last).toLocaleTimeString() : 'Syncing...') + '</p>';
+      h += '<button class="btn gray" id="unlink">STOP SYNCING THIS DEVICE</button>';
+    } else {
+      h += '<p>Get a sync code to play with the same progress on your phone and laptop.</p>';
+      h += '<div class="row"><button class="btn" id="mkcode">GET MY CODE</button><button class="btn blue" id="entercode">I HAVE A CODE</button></div>';
+    }
+    h += '<div id="syncbox"></div>';
+    h += '<h3>Progress</h3><p>Your progress also saves on this device after every flight and purchase. A backup code is a manual copy you can keep anywhere.</p>';
     h += '<div class="row"><button class="btn blue" id="exp">BACKUP CODE</button><button class="btn blue" id="imp">RESTORE</button></div>';
     h += '<div id="bk"></div>';
     h += '<p class="sub" style="margin-top:12px">Flights ' + S.flights + ' · Total ' + fmtDist(S.total) + ' · Earned ' + fmt(S.stats.earned) + '</p>';
@@ -1417,6 +1615,15 @@ import * as W3 from './world3d.js';
           } catch (e) { toast('That code did not work'); }
         });
       });
+      const mk = p.querySelector('#mkcode');
+      if (mk) mk.addEventListener('click', async () => {
+        mk.disabled = true; mk.textContent = 'CREATING...';
+        try { await Cloud.create(); Sfx.evolve(); showSettings(); } catch (e) { mk.disabled = false; mk.textContent = 'GET MY CODE'; toast('Could not reach the cloud - check your connection'); }
+      });
+      const ec = p.querySelector('#entercode');
+      if (ec) ec.addEventListener('click', () => showCodeEntry(() => showSettings()));
+      const ul = p.querySelector('#unlink');
+      if (ul) ul.addEventListener('click', () => { S.sync.code = ''; writeNow(); showSettings(); });
       let armed = false;
       p.querySelector('#reset').addEventListener('click', (e) => {
         if (!armed) { armed = true; e.target.textContent = 'TAP AGAIN TO ERASE EVERYTHING'; return; }
@@ -1426,6 +1633,38 @@ import * as W3 from './world3d.js';
   }
   $('btn-settings').addEventListener('click', () => { Sfx.init(); showSettings(); });
 
+  function showCodeEntry(back) {
+    openPanel('<h2>ENTER YOUR CODE</h2><p class="center">Type the 6-character code shown in Settings on your other device.</p>' +
+      '<input id="codein" maxlength="8" autocomplete="off" autocapitalize="characters" spellcheck="false" style="width:100%;font:900 34px system-ui;text-align:center;letter-spacing:8px;padding:10px;border-radius:12px;border:3px solid #1b2240;text-transform:uppercase;user-select:text;-webkit-user-select:text">' +
+      '<p class="sub" id="codeerr"></p><button class="btn" id="codego">LOAD MY PROGRESS</button><button class="btn gray" id="codeback">BACK</button>', (p) => {
+      const inp = p.querySelector('#codein'); setTimeout(() => inp.focus(), 50);
+      inp.addEventListener('input', () => { inp.value = Cloud.clean(inp.value); });
+      p.querySelector('#codeback').addEventListener('click', () => (back ? back() : closePanel()));
+      p.querySelector('#codego').addEventListener('click', async (e) => {
+        const b = e.target; b.disabled = true; b.textContent = 'LOADING...';
+        try {
+          await Cloud.link(inp.value);
+          Sfx.evolve(); closePanel(); toast('Progress loaded!');
+        } catch (err) {
+          b.disabled = false; b.textContent = 'LOAD MY PROGRESS';
+          p.querySelector('#codeerr').textContent = /^(No save|Codes)/.test(err.message) ? err.message : 'Could not reach the cloud - check your connection';
+          Sfx.deny();
+        }
+      });
+    });
+  }
+  // first launch on a new device: offer to load an existing save
+  function maybeWelcome() {
+    if (!Cloud.ok() || S.sync.code || S.sync.asked || S.flights > 0) return;
+    S.sync.asked = true; save();
+    openPanel('<h2>WELCOME, PILOT!</h2><p class="center">Already playing on another device? Enter your sync code to bring your progress here.</p>' +
+      '<button class="btn" id="wnew">NEW GAME</button><button class="btn blue" id="whave">I HAVE A CODE</button>', (p) => {
+      p.querySelector('#wnew').addEventListener('click', closePanel);
+      p.querySelector('#whave').addEventListener('click', () => showCodeEntry(maybeWelcomeBack));
+    });
+  }
+  function maybeWelcomeBack() { S.sync.asked = false; maybeWelcome(); }
+
   // ===================================================================== boot
   window.addEventListener('resize', () => { resize(); if (state === 'hangar') snapCam = true; });
   resize();
@@ -1433,6 +1672,8 @@ import * as W3 from './world3d.js';
   rebuildPlane();
   W3.resetScenery(0, 0, sig);
   refreshUI();
+  maybeWelcome();
+  Cloud.pull();
   requestAnimationFrame((ts) => { last = ts; frame(ts); });
   if ('serviceWorker' in navigator && location.protocol === 'https:') navigator.serviceWorker.register('sw.js').catch(() => {});
 })();
