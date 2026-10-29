@@ -98,61 +98,96 @@
     rocket: (l) => Math.round(500 * Math.pow(1.35, l - 1)),
   };
 
-  // ---- Flight physics. Energy-style arcade model: the plane flies where it points,
-  // gravity trades speed for height, drag bleeds speed, thrust adds it.
-  // x = downrange, y = up, z = right. p = pitch, h = heading (0 = straight downrange).
-  // P: { x, y, z, v, p, h, fuel, rocket, rocketOn, ground, water, st, rk }
+  // ---- Flight physics: a point-mass aircraft with real momentum.
+  // The plane has a velocity (speed v, climb angle gam, heading h) and a nose that sits at an
+  // angle of attack (a) above the velocity. Lift grows with speed^2 and angle of attack, so a
+  // slow plane can't hold itself up: it arcs over, falls with gravity, and its nose follows the
+  // fall. Speed comes from thrust and diving; drag and climbing take it away.
+  // x = downrange, y = up, z = right. p = nose pitch (for drawing), h = heading.
+  // P: { x, y, z, v, gam, a, p, h, fuel, rocket, rocketOn, ground, water, st, rk }
   // u = pitch input, ux = turn input, both -1..1.
+  const A0 = 0.05, ATRIM = 0.07, ASTALL = 0.32;
+  function liftCoef(a) {
+    let cl = (a + A0) / (ATRIM + A0);
+    if (a > ASTALL) cl *= Math.max(0.3, 1 - (a - ASTALL) * 4); // stalled wing loses lift
+    return cl;
+  }
   function stepPlane(P, u, dt, lift, ux) {
-    const st = P.st;
-    const stall = st.vbg * 0.6;
-    const ctrl = Math.min(1, P.v / stall);
-    // control inputs drive pitch/turn *rates* that ease in and out, so the plane never snaps
-    const k = Math.min(1, dt * 7);
-    const pTarget = u !== 0 ? u * 2.0 * ctrl : (-0.07 - P.p) * 0.6;
-    P.pr = (P.pr || 0) + (pTarget - (P.pr || 0)) * k;
-    P.p += P.pr * dt;
-    if (P.v < stall) P.p -= (1 - P.v / stall) * (1 - P.v / stall) * 3 * dt; // stall: nose drops, gently at first
+    const st = P.st, g = st.g;
+    let v = P.v > 0.3 ? P.v : 0.3;
+    let gam = P.gam === undefined ? P.p : P.gam;
+    const vn = v / st.vbg, vn2 = vn * vn;
     const over = P.y - st.ceil;
-    if (over > 0) P.p -= Math.min(1.5, over / (25 * st.sig)) * dt; // thin air above the ceiling
-    if (P.p > 1.35) P.p = 1.35; else if (P.p < -1.35) P.p = -1.35;
+    const air = over > 0 ? Math.max(0.15, 1 - over / (40 * st.sig)) : 1; // thin air above the ceiling
+
+    // Angle of attack: with no input the "autopilot" trims for a gentle glide; input adds or removes
+    // lift. It eases toward its target so the nose never snaps.
+    // lift that would ease the flight path toward a shallow glide (pulls out of dives gently)
+    // (when slow it aims a bit steeper so the plane trades height for flying speed, like a real glider)
+    const gTarget = -0.07 - 1.3 * Math.max(0, 0.95 - vn);
+    const needL = g * Math.cos(gam) + v * 0.9 * (gTarget - gam);
+    const need = (needL / (g * Math.max(vn2 * air, 0.04))) * (ATRIM + A0) - A0;
+    let aT = Math.min(ASTALL * 0.9, Math.max(-0.12, need)) + u * 0.34;
+    if (aT > 0.55) aT = 0.55; else if (aT < -0.35) aT = -0.35;
+    const a = (P.a || 0) + (aT - (P.a || 0)) * Math.min(1, dt * 6);
+    P.a = a;
+
+    let L = g * vn2 * liftCoef(a) * air;
+    if (L > 5 * g) L = 5 * g; else if (L < -2 * g) L = -2 * g;
+    const D = st.drag * v * v + (st.ind / (v * v)) * (L / g) * (L / g);
+    let T = 0;
+    if (P.fuel > 0) { T += st.thrust * air; P.fuel -= dt; }
+    if (P.rocketOn && P.rocket > 0) { T += P.rk.thrust * g * (0.5 + 0.5 * air); P.rocket -= dt; }
+
+    v += (T * Math.cos(a) - D - g * Math.sin(gam)) * dt;
+    let dg = (L + T * Math.sin(a) - g * Math.cos(gam)) / v;
+    if (over > 0) dg -= Math.min(1.2, over / (30 * st.sig)); // thin air: can't hold altitude up there
+    if (dg > 3) dg = 3; else if (dg < -3) dg = -3;
+    if (P.ground && dg < 0) dg = 0;
+    gam += dg * dt;
+    if (gam > 1.5) gam = 1.5; else if (gam < -1.5) gam = -1.5;
+    if (v < 0.3) v = 0.3;
+
+    // turning: banked turn rate, weaker when slow
+    const ctrl = Math.min(1, vn / 0.6);
     let h = P.h || 0;
     P.hr = (P.hr || 0) + ((ux || 0) * 1.2 * ctrl - (P.hr || 0)) * Math.min(1, dt * 4);
     if (P.hr > 1e-4 || P.hr < -1e-4) { h += P.hr * dt; if (h > 1.2) h = 1.2; else if (h < -1.2) h = -1.2; P.h = h; }
 
-    const v2 = Math.max(P.v * P.v, 1);
-    let a = -st.g * Math.sin(P.p) - st.drag * v2 - (P.ground ? 0 : st.ind / v2);
-    const air = over > 0 ? Math.max(0, 1 - over / (40 * st.sig)) : 1;
-    if (P.fuel > 0) { a += st.thrust * air; P.fuel -= dt; }
-    if (P.rocketOn && P.rocket > 0) { a += P.rk.thrust * st.g * (0.5 + 0.5 * air); P.rocket -= dt; }
-    P.v += a * dt;
-    if (P.v < 0.3) P.v = 0.3;
-
-    const hv = P.v * Math.cos(P.p);
+    const hv = v * Math.cos(gam);
     P.x += hv * Math.cos(h) * dt;
     if (h) P.z = (P.z || 0) + hv * Math.sin(h) * dt;
-    P.y += (P.v * Math.sin(P.p) + (lift || 0) * st.sig) * dt;
-    if (P.v < stall && !P.ground) P.y -= (stall - P.v) * 0.6 * dt;
+    P.y += (v * Math.sin(gam) + (lift || 0) * st.sig) * dt;
 
+    let ev = null;
     P.ground = false;
     if (P.y <= 0) {
       P.y = 0;
       P.ground = true;
-      if (P.p < 0) {
-        const imp = -P.p;
-        if (imp > 0.3 && P.v > st.vbg) { // bounce
-          P.p = imp * 0.55;
-          P.v *= 0.78 - imp * 0.12;
-          return 'bounce';
-        }
-        P.p = 0;
+      if (gam < 0) {
+        const vy = -v * Math.sin(gam); // impact speed straight down
+        if (gam < -0.55 && vy > 1.5 * st.vbg) ev = 'smash'; // nose-first into the ground
+        else if (gam < -0.2 && v > st.vbg) { // skip off the ground
+          gam = -gam * 0.45;
+          v *= 0.8 - Math.min(0.3, -gam * 0.2);
+          ev = 'bounce';
+        } else gam = 0;
       }
     }
-    if (P.ground) P.v -= (P.water ? 1.6 : 0.4) * st.g * dt + P.v * 0.15 * dt;
-    return null;
+    if (P.ground && gam <= 0) { v -= (P.water ? 1.6 : 0.45) * g * dt + v * 0.12 * dt; if (v < 0.3) v = 0.3; }
+    P.v = v; P.gam = gam;
+    P.p = gam + (P.ground ? 0 : a); // drawn nose
+    return ev;
+  }
+  // Helpers so game code can nudge the plane without knowing the model.
+  function kick(P, dv, dgam, minGam) {
+    P.v = Math.max(0.3, P.v + (dv || 0));
+    P.gam = (P.gam || 0) + (dgam || 0);
+    if (minGam !== undefined && P.gam < minGam) P.gam = minGam;
+    if (P.gam > 1.5) P.gam = 1.5; else if (P.gam < -1.5) P.gam = -1.5;
   }
 
-  const api = { G, MODELS, BIOMES, biomeIndex, modelIndex, planeStats, planeParts, nextPartName, slingPower, incomeMult, rocketStats, COST, stepPlane };
+  const api = { G, MODELS, BIOMES, biomeIndex, modelIndex, planeStats, planeParts, nextPartName, slingPower, incomeMult, rocketStats, COST, stepPlane, kick };
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
   else root.Core = api;
 })(typeof window !== 'undefined' ? window : globalThis);

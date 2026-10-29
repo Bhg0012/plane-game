@@ -482,7 +482,7 @@ function updateCamera(v) {
   } else {
     const P = v.P, vn = P.v / P.st.vbg;
     camHeading += (v.heading - camHeading) * Math.min(1, dt * 3.5);
-    const cp = v.pitch * 0.45;
+    const cp = (v.camPitch === undefined ? v.pitch : v.camPitch) * 0.6; // follow the flight path, not the nose
     const dist = L * (3.0 + Math.min(1.6, vn * 0.25)), up = L * 0.85;
     const ch = Math.cos(camHeading), sh = Math.sin(camHeading), cc = Math.cos(cp);
     px = tx - ch * cc * dist; py = ty - Math.sin(cp) * dist + up; pz = tz - sh * cc * dist;

@@ -2,16 +2,16 @@
 const C = require('../core.js');
 function fly(lv) {
   const st = C.planeStats(lv.plane), rk = C.rocketStats(lv.rocket);
-  const P = { x: 0, y: 3, v: C.slingPower(lv.sling) * st.vbg, p: 0.6, fuel: st.fuel, rocket: lv.rocket ? rk.time : 0, rocketOn: false, st, rk };
+  const P = { x: 0, y: 3, v: C.slingPower(lv.sling) * st.vbg, p: 0.6, gam: 0.45, a: 0, fuel: st.fuel, rocket: lv.rocket ? rk.time : 0, rocketOn: false, st, rk };
   let t = 0, coins = 0, maxY = 0;
   const dt = 1 / 120;
   while (t < 600) {
     let target = P.fuel > 0 ? 0.3 : -0.1 + Math.max(-0.3, Math.min(0.2, (P.v - st.vbg) / st.vbg * 0.3));
     
     P.rocketOn = P.fuel <= 0 && P.rocket > 0;
-    const u = Math.max(-1, Math.min(1, (target - P.p) * 3));
+    const u = Math.max(-1, Math.min(1, (target - P.gam) * 2));
     const ox = P.x;
-    C.stepPlane(P, u, dt, 0);
+    if (C.stepPlane(P, u, dt, 0) === 'smash') break;
     coins += (P.x - ox) * C.BIOMES[C.biomeIndex(P.x)].rate;
     maxY = Math.max(maxY, P.y);
     t += dt;
