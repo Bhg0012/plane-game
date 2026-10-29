@@ -1,5 +1,7 @@
 # Sky Fling
 
+**[Play Sky Fling](https://bhg0012.github.io/plane-game/)**: https://bhg0012.github.io/plane-game/
+
 A fast, lightweight 3D slingshot-plane distance game (inspired by the "launch, fly, upgrade, repeat" loop of mobile plane games). Three.js (bundled in `vendor/`), no build step, ~20-40 draw calls per frame so it stays smooth on phones.
 
 ## Play
