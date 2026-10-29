@@ -60,7 +60,7 @@ import * as W3 from './world3d.js';
   ];
 
   // ===================================================================== save
-  const VERSION = '1.7';
+  const VERSION = '1.8';
   const KEY = 'skyfling.save.v1';
   function defaults() {
     return {
@@ -834,7 +834,8 @@ import * as W3 from './world3d.js';
     if (k === ' ' || k === 'Shift') keyBoost = false;
   });
   const input = { u: 0, ux: 0 };
-  function controlInput() {
+  const keyAxis = { u: 0, x: 0 };
+  function controlInput(dt) {
     let u = 0, ux = 0;
     if (stick.on) {
       const R = 55 * S.set.sens;
@@ -846,15 +847,21 @@ import * as W3 from './world3d.js';
       if (S.set.control === 'hold') u = 1;
       else u = curve(dy);
     }
-    if (keyUp) u = 1; else if (keyDown) u = -1;
-    if (keyLeft) ux = -1; else if (keyRight) ux = 1;
+    // keys follow the same "pull down to climb" setting as the stick, and ramp in smoothly
+    let ku = keyUp ? 1 : keyDown ? -1 : 0;
+    if (S.set.invert) ku = -ku;
+    const kx = keyLeft ? -1 : keyRight ? 1 : 0;
+    const kr = Math.min(1, (dt || 0) * 5);
+    keyAxis.u += (ku - keyAxis.u) * kr; keyAxis.x += (kx - keyAxis.x) * kr;
+    if (ku || Math.abs(keyAxis.u) > 0.02) u = keyAxis.u;
+    if (kx || Math.abs(keyAxis.x) > 0.02) ux = keyAxis.x;
     input.u = u; input.ux = ux;
     return input;
   }
 
   // ===================================================================== update
   function updateFly(dt) {
-    const inp = controlInput();
+    const inp = controlInput(dt);
     P.rocketOn = (boostId !== -1 || keyBoost) && P.rocket > 0;
     simAcc += dt;
     while (simAcc >= HSTEP && state === 'fly') {
@@ -1600,7 +1607,7 @@ import * as W3 from './world3d.js';
   // ---------------------------------------------------------------- settings
   function showSettings() {
     const T = (k) => '<div class="toggle ' + (S.set[k] ? 'on' : '') + '" data-t="' + k + '"></div>';
-    let h = '<h2>SETTINGS</h2>';
+    let h = '<h2>SETTINGS</h2><div class="center" style="margin:-6px 0 8px"><span class="tag blue">VERSION ' + VERSION + '</span></div>';
     h += '<div class="set-row">Sound' + T('sound') + '</div>';
     h += '<div class="set-row">Vibration' + T('haptics') + '</div>';
     h += '<div class="set-row">Controls<div class="seg"><button data-c="drag" class="' + (S.set.control === 'drag' ? 'on' : '') + '">Drag stick</button><button data-c="hold" class="' + (S.set.control === 'hold' ? 'on' : '') + '">Hold to climb</button></div></div>';
@@ -1621,7 +1628,7 @@ import * as W3 from './world3d.js';
     h += '<h3>Progress</h3><p>Your progress also saves on this device after every flight and purchase. A backup code is a manual copy you can keep anywhere.</p>';
     h += '<div class="row"><button class="btn blue" id="exp">BACKUP CODE</button><button class="btn blue" id="imp">RESTORE</button></div>';
     h += '<div id="bk"></div>';
-    h += '<p class="sub" style="margin-top:12px">Version ' + VERSION + ' · Flights ' + S.flights + ' · Total ' + fmtDist(S.total) + ' · Earned ' + fmt(S.stats.earned) + '</p>';
+    h += '<p class="sub" style="margin-top:12px">Flights ' + S.flights + ' · Total ' + fmtDist(S.total) + ' · Earned ' + fmt(S.stats.earned) + '</p>';
     h += '<button class="btn red" id="reset">RESET PROGRESS</button><button class="btn gray" data-close>CLOSE</button>';
     openPanel(h, (p) => {
       p.querySelectorAll('[data-t]').forEach((t) => t.addEventListener('click', () => {
