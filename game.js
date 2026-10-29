@@ -60,6 +60,7 @@ import * as W3 from './world3d.js';
   ];
 
   // ===================================================================== save
+  const VERSION = '1.7';
   const KEY = 'skyfling.save.v1';
   function defaults() {
     return {
@@ -1572,7 +1573,9 @@ import * as W3 from './world3d.js';
     toHangar();
     bumpPill('.pill.coin');
   }
+  let updateReady = false;
   function toHangar() {
+    if (updateReady) { writeNow(); location.reload(); return; }
     state = 'hangar';
     closePanel();
     ents.length = 0; trailN = 0;
@@ -1618,7 +1621,7 @@ import * as W3 from './world3d.js';
     h += '<h3>Progress</h3><p>Your progress also saves on this device after every flight and purchase. A backup code is a manual copy you can keep anywhere.</p>';
     h += '<div class="row"><button class="btn blue" id="exp">BACKUP CODE</button><button class="btn blue" id="imp">RESTORE</button></div>';
     h += '<div id="bk"></div>';
-    h += '<p class="sub" style="margin-top:12px">Flights ' + S.flights + ' · Total ' + fmtDist(S.total) + ' · Earned ' + fmt(S.stats.earned) + '</p>';
+    h += '<p class="sub" style="margin-top:12px">Version ' + VERSION + ' · Flights ' + S.flights + ' · Total ' + fmtDist(S.total) + ' · Earned ' + fmt(S.stats.earned) + '</p>';
     h += '<button class="btn red" id="reset">RESET PROGRESS</button><button class="btn gray" data-close>CLOSE</button>';
     openPanel(h, (p) => {
       p.querySelectorAll('[data-t]').forEach((t) => t.addEventListener('click', () => {
@@ -1705,5 +1708,18 @@ import * as W3 from './world3d.js';
   maybeWelcome();
   Cloud.pull();
   requestAnimationFrame((ts) => { last = ts; frame(ts); });
-  if ('serviceWorker' in navigator && location.protocol === 'https:') navigator.serviceWorker.register('sw.js').catch(() => {});
+  // Updates: check for a new version on open and whenever the game comes back to the foreground;
+  // when one takes over, reload straight away if we're sitting in the hangar (otherwise after the flight).
+  if ('serviceWorker' in navigator && location.protocol === 'https:') {
+    const hadController = !!navigator.serviceWorker.controller;
+    navigator.serviceWorker.register('sw.js', { updateViaCache: 'none' }).then((reg) => {
+      reg.update().catch(() => {});
+      document.addEventListener('visibilitychange', () => { if (!document.hidden) reg.update().catch(() => {}); });
+    }).catch(() => {});
+    navigator.serviceWorker.addEventListener('controllerchange', () => {
+      if (!hadController) return; // first install, page is already current
+      updateReady = true;
+      if (state === 'hangar' && modal.classList.contains('hidden')) { writeNow(); location.reload(); }
+    });
+  }
 })();
