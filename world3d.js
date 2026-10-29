@@ -7,8 +7,9 @@ const { MODELS, BIOMES } = C;
 
 let renderer, scene, camera, hemi, sun;
 let sky, skyCols, ground, groundTex, shadow, sunDisc, sunGlow;
-let ghost = null;
+let ghost = null, shieldMesh = null;
 let planeGroup = null, prop = null, jetFlame = null, rocketFlame = null;
+let slingDeco, slingAnim = [], slingTierBuilt = -1;
 let site, bandA, bandB, bestStripe, bestPole, bestFlag;
 let particles, pPos, pCol, pSize, pUniforms;
 let trailMesh, trailPos, trailCol;
@@ -21,6 +22,7 @@ const colorCache = new Map();
 function colorOf(s) { let c = colorCache.get(s); if (!c) { c = new THREE.Color(s); colorCache.set(s, c); } return c; }
 
 const lam = (c, extra) => new THREE.MeshLambertMaterial(Object.assign({ color: c, flatShading: true }, extra || {}));
+const lamBase = lam;
 function M4(x, y, z, sx = 1, sy = 1, sz = 1, rx = 0, ry = 0, rz = 0) {
   return new THREE.Matrix4().compose(new THREE.Vector3(x, y, z), new THREE.Quaternion().setFromEuler(new THREE.Euler(rx, ry, rz)), new THREE.Vector3(sx, sy, sz));
 }
@@ -61,6 +63,7 @@ class Pool {
   }
   end() {
     this.mesh.count = this.n;
+    this.mesh.visible = this.n > 0; // empty pools cost no draw call
     this.mesh.instanceMatrix.needsUpdate = true;
     if (this.colored && this.mesh.instanceColor) this.mesh.instanceColor.needsUpdate = true;
   }
@@ -110,6 +113,8 @@ export function init(canvas) {
 
   shadow = new THREE.Mesh(new THREE.CircleGeometry(0.5, 20).rotateX(-Math.PI / 2), new THREE.MeshBasicMaterial({ color: '#000', transparent: true, opacity: 0.25, depthWrite: false }));
   scene.add(shadow);
+  shieldMesh = new THREE.Mesh(new THREE.IcosahedronGeometry(1, 2), new THREE.MeshBasicMaterial({ color: '#38b6ff', transparent: true, opacity: 0.22, depthWrite: false }));
+  shieldMesh.visible = false; scene.add(shieldMesh);
   sunDisc = new THREE.Mesh(new THREE.CircleGeometry(1, 28), new THREE.MeshBasicMaterial({ color: '#fff6d0', fog: false, depthWrite: false }));
   sunGlow = new THREE.Mesh(new THREE.CircleGeometry(1, 28), new THREE.MeshBasicMaterial({ color: '#fff2b0', transparent: true, opacity: 0.25, fog: false, depthWrite: false }));
   sunDisc.renderOrder = sunGlow.renderOrder = -0.5;
@@ -121,6 +126,9 @@ export function init(canvas) {
   pools.gem = new Pool(new THREE.OctahedronGeometry(1), lam('#3fb2ff', { emissive: '#0b3a80' }), 30);
   pools.rfuel = new Pool(new THREE.CylinderGeometry(0.55, 0.55, 1.7, 12), lam('#a24bff', { emissive: '#4a1080' }), 20);
   pools.rfuelTip = new Pool(new THREE.ConeGeometry(0.55, 0.7, 12), lam('#ffb43a', { emissive: '#7a3a00' }), 20);
+  const pRingG = new THREE.TorusGeometry(1, 0.13, 8, 32); pRingG.rotateY(Math.PI / 2);
+  pools.pring = new Pool(pRingG, lam('#ffffff', { emissive: '#333333' }), 20, true);
+  pools.picon = new Pool(new THREE.OctahedronGeometry(1, 0), new THREE.MeshBasicMaterial({ color: '#ffffff' }), 20, true);
   pools.debris = new Pool(new THREE.BoxGeometry(1, 1, 1), lam('#fff'), 40, true);
   pools.fuel = new Pool(new THREE.BoxGeometry(1.2, 1.6, 0.8), lam('#e63946', { emissive: '#400' }), 30);
   const ringG = new THREE.TorusGeometry(1, 0.1, 8, 28); ringG.rotateY(Math.PI / 2);
@@ -142,7 +150,7 @@ export function init(canvas) {
   pools.blade = new Pool(new THREE.BoxGeometry(0.12, 1, 0.5).translate(0, 0.5, 0), lam('#f2f2f2'), 120, true);
   pools.spike = new Pool(new THREE.OctahedronGeometry(1, 0), lam('#2a2a2a'), 60);
   pools.grass = new Pool(base0(new THREE.ConeGeometry(0.5, 1, 4)), lam('#fff'), 260, true);
-  pools.flower = new Pool(new THREE.IcosahedronGeometry(0.5, 0), new THREE.MeshLambertMaterial({ color: '#ffffff', emissive: '#333333' }), 120, true);
+  pools.flower = new Pool(new THREE.IcosahedronGeometry(0.5, 0), new THREE.MeshLambertMaterial({ color: '#ffffff', emissive: '#333333' }), 260, true);
   const prismG = new THREE.CylinderGeometry(0.5, 0.5, 1, 3); prismG.rotateX(Math.PI / 2); prismG.rotateZ(Math.PI); prismG.translate(0, 0.25, 0);
   prismG.scale(1, 2, 1);
   pools.prism = new Pool(new THREE.BufferGeometry().copy(prismG), lam('#fff'), 60, true);
@@ -167,7 +175,10 @@ export function init(canvas) {
   const sock = new THREE.Mesh(new THREE.ConeGeometry(0.4, 2.2, 8).rotateZ(Math.PI / 2), lam('#ff6a1a')); sock.position.set(-2.9, 5.6, 6); site.add(sock);
   site.userData.scaled = [hangar, pole, sock];
   scene.add(site);
+  site.userData.wood = wood;
+  slingDeco = new THREE.Group(); site.add(slingDeco);
   const bandMat = new THREE.MeshLambertMaterial({ color: '#2b1a0e' });
+  site.userData.band = bandMat;
   bandA = new THREE.Mesh(new THREE.BoxGeometry(1, 1, 1), bandMat); bandB = new THREE.Mesh(new THREE.BoxGeometry(1, 1, 1), bandMat);
   scene.add(bandA, bandB);
 
@@ -207,75 +218,202 @@ export function init(canvas) {
   scene.add(trailMesh);
 }
 
+let baseRatio = 1, qualityScale = 1;
+export function setQuality(scale) { qualityScale = scale; renderer.setPixelRatio(Math.max(0.6, baseRatio * scale)); renderer.setSize(W, H, false); }
 export function resize(w, h, perf) {
   W = w; H = h;
-  renderer.setPixelRatio(perf ? 1 : Math.min(window.devicePixelRatio || 1, 1.75));
+  baseRatio = perf ? 1 : Math.min(window.devicePixelRatio || 1, 1.75);
+  renderer.setPixelRatio(Math.max(0.6, baseRatio * qualityScale));
   renderer.setSize(w, h, false);
   camera.aspect = w / h; camera.updateProjectionMatrix();
 }
 
 // ----------------------------------------------------------------- plane model (length 1, nose +x)
+// trapezoid wing panel: root chord from x0 (leading) to x1 (trailing) at z=0, tip chord tx0..tx1 at z=zt
+function trap(x0, x1, tx0, tx1, zt, th, ty) {
+  const h = th / 2, t = ty || 0;
+  const v = [x0, h, 0, x1, h, 0, tx1, t + h * 0.6, zt, tx0, t + h * 0.6, zt, x0, -h, 0, x1, -h, 0, tx1, t - h * 0.6, zt, tx0, t - h * 0.6, zt];
+  const idx = [0, 1, 2, 0, 2, 3, 4, 6, 5, 4, 7, 6, 0, 4, 5, 0, 5, 1, 1, 5, 6, 1, 6, 2, 2, 6, 7, 2, 7, 3, 3, 7, 4, 3, 4, 0];
+  const g = new THREE.BufferGeometry();
+  g.setAttribute('position', new THREE.Float32BufferAttribute(v, 3)); g.setIndex(idx);
+  const n = g.toNonIndexed(); n.computeVertexNormals(); return n;
+}
 export function setPlane(model, paint, len, parts) {
   parts = parts || { tail: true, cockpit: true, engine: true };
   if (planeGroup) { scene.remove(planeGroup); planeGroup.traverse((o) => { if (o.geometry) o.geometry.dispose(); }); }
-  const M = MODELS[model];
-  const mb = lam(paint.body || M.body), mw = lam(paint.wing || M.wing), md = lam('#2a2a2a'), mg = lam('#9fdcff', { emissive: '#1a3a55' });
+  const M = MODELS[model], st = M.style || 'classic';
+  const matCache = new Map();
+  const lam = (c, extra) => { const k = c + JSON.stringify(extra || {}); let m = matCache.get(k); if (!m) { m = lamBase(c, extra); matCache.set(k, m); } return m; };
+  const ds = { side: THREE.DoubleSide };
+  const mb = lam(paint.body || M.body, ds), mw = lam(paint.wing || M.wing, ds), md = lam('#2a2a2a'), mm = lam('#9aa3ad'), mr = lam('#e63946');
+  const mg = lam(M.style === 'stealth' || M.style === 'flyingwing' ? '#d9b25a' : '#9fdcff', { emissive: M.style === 'stealth' || M.style === 'flyingwing' ? '#3a2a00' : '#1a3a55' });
   const g = new THREE.Group();
-  const add = (geo, mat, x, y, z, rx, ry, rz) => { const m = new THREE.Mesh(geo, mat); m.position.set(x, y, z); m.rotation.set(rx || 0, ry || 0, rz || 0); g.add(m); return m; };
-  const jet = !M.prop;
-  const cyl = (r1, r2, l, seg) => new THREE.CylinderGeometry(r1, r2, l, seg || 10).rotateZ(-Math.PI / 2); // axis along x, r1 at +x
-  add(cyl(jet ? 0.012 : 0.075, 0.1, 0.45, 16), mb, 0.27, 0, 0);
-  add(cyl(0.1, 0.035, 0.55, 16), mb, -0.22, 0, 0);
-  if (M.prop && parts.engine) {
-    add(cyl(0.085, 0.1, 0.1, 16), md, 0.44, 0, 0); // engine cowling
-    for (const z of [-0.07, 0.07]) add(cyl(0.012, 0.012, 0.08, 6), md, 0.33, -0.06, z * 1.4); // exhaust stubs
-  }
-  if (parts.cockpit) add(new THREE.SphereGeometry(0.07, 10, 8), mg, jet ? 0.22 : 0.1, 0.085, 0).scale.set(jet ? 2 : 1.5, 0.8, 0.85);
-  if (parts.stripe) for (const z of [-0.101, 0.101]) add(new THREE.BoxGeometry(0.7, 0.03, 0.005), mw, 0.0, 0.0, z);
-  const span = M.longWing ? 1.45 : 1.15;
-  if (parts.wheels && !M.floats) {
-    for (const z of [-0.14, 0.14]) {
-      add(new THREE.BoxGeometry(0.015, 0.12, 0.015), md, 0.12, -0.12, z);
-      add(new THREE.CylinderGeometry(0.045, 0.045, 0.03, 12).rotateX(Math.PI / 2), md, 0.12, -0.18, z);
+  const add = (geo, mat, x, y, z, rx, ry, rz) => { const m = new THREE.Mesh(geo, mat); m.position.set(x || 0, y || 0, z || 0); m.rotation.set(rx || 0, ry || 0, rz || 0); g.add(m); return m; };
+  const cyl = (r1, r2, l, seg) => new THREE.CylinderGeometry(r1, r2, l, seg || 14).rotateZ(-Math.PI / 2); // axis along x, r1 at +x
+  const box = (x, y, z) => new THREE.BoxGeometry(x, y, z);
+  const nozzles = [];
+  const roundel = (x, y, z) => { // military insignia on the wings
+    add(new THREE.CylinderGeometry(0.05, 0.05, 0.006, 16), lam('#f4f1ea'), x, y, z);
+    add(new THREE.CylinderGeometry(0.028, 0.028, 0.008, 16), lam(M.style ? '#2a3a6a' : '#c0392b'), x, y + 0.001, z);
+  };
+  const missile = (z) => {
+    add(cyl(0.014, 0.014, 0.26, 8), lam('#eeeeee'), -0.02, -0.055, z);
+    add(new THREE.ConeGeometry(0.014, 0.05, 8).rotateZ(-Math.PI / 2), mr, 0.135, -0.055, z);
+    add(box(0.05, 0.003, 0.04), lam('#cccccc'), -0.13, -0.055, z);
+  };
+
+  if (st === 'classic') {
+    const jet = !M.prop;
+    add(cyl(jet ? 0.012 : 0.075, 0.1, 0.45, 16), mb, 0.27, 0, 0);
+    add(cyl(0.1, 0.035, 0.55, 16), mb, -0.22, 0, 0);
+    if (M.prop && parts.engine) {
+      add(cyl(0.085, 0.1, 0.1, 16), md, 0.44, 0, 0);
+      for (const z of [-0.07, 0.07]) add(cyl(0.012, 0.012, 0.08, 6), md, 0.33, -0.06, z * 1.4);
     }
+    if (parts.cockpit) {
+      add(new THREE.SphereGeometry(0.07, 12, 8), mg, 0.1, 0.085, 0).scale.set(1.5, 0.8, 0.85);
+      add(box(0.006, 0.07, 0.11), md, 0.1, 0.09, 0); // canopy frame
+      add(cyl(0.004, 0.004, 0.09, 4), md, -0.1, 0.13, 0, 0, 0, 1.2); // radio mast
+    }
+    if (parts.stripe) for (const z of [-0.101, 0.101]) add(box(0.7, 0.03, 0.005), mw, 0, 0, z);
+    const span = M.longWing ? 1.45 : 1.15;
+    if (parts.wheels && !M.floats) {
+      for (const z of [-0.14, 0.14]) {
+        add(box(0.015, 0.12, 0.015), md, 0.12, -0.12, z);
+        add(new THREE.CylinderGeometry(0.045, 0.045, 0.03, 14).rotateX(Math.PI / 2), md, 0.12, -0.18, z);
+        add(new THREE.CylinderGeometry(0.02, 0.02, 0.034, 10).rotateX(Math.PI / 2), mm, 0.12, -0.18, z);
+      }
+      add(new THREE.CylinderGeometry(0.018, 0.018, 0.015, 10).rotateX(Math.PI / 2), md, -0.47, -0.06, 0); // tail wheel
+    }
+    if (parts.tanks) for (const z of [-0.3, 0.3]) add(new THREE.CylinderGeometry(0.035, 0.035, 0.28, 10).rotateZ(Math.PI / 2), lam('#d0d0d0'), 0.06, -0.08, z);
+    if (parts.winglets) for (const z of [-span / 2, span / 2]) add(box(0.16, 0.1, 0.012), mw, 0.04, 0.02, z);
+    add(trap(0.17, -0.05, 0.12, -0.02, span / 2, 0.028), mw, 0, -0.03, 0);
+    add(trap(0.17, -0.05, 0.12, -0.02, -span / 2, 0.028), mw, 0, -0.03, 0);
+    for (const z of [-span / 2, span / 2]) add(box(0.12, 0.03, 0.04), lam(z < 0 ? '#e63946' : '#2fbf4a', { emissive: z < 0 ? '#600' : '#060' }), 0.08, -0.03, z);
+    add(cyl(0.004, 0.004, 0.1, 4), mm, 0.22, -0.035, span * 0.4); // pitot tube
+    if (M.mil) { roundel(0.05, -0.012, span * 0.33); roundel(0.05, -0.012, -span * 0.33); }
+    if (M.bi) {
+      add(box(0.22, 0.025, 1.15), mw, 0.08, 0.2, 0);
+      for (const z of [-0.4, 0.4]) for (const x of [0.0, 0.14]) add(box(0.015, 0.22, 0.015), md, x, 0.09, z);
+      for (const z of [-0.4, 0.4]) add(box(0.003, 0.3, 0.003), md, 0.07, 0.09, z, 0.6, 0, 0); // bracing wires
+    }
+    if (parts.tail) {
+      add(box(0.17, 0.22, 0.02), mw, -0.42, 0.12, 0, 0, 0, 0.35);
+      add(box(0.05, 0.12, 0.022), mr, -0.47, 0.16, 0, 0, 0, 0.35); // rudder stripe
+      add(trap(-0.38, -0.5, -0.44, -0.51, 0.22, 0.02), mw, 0, 0, 0);
+      add(trap(-0.38, -0.5, -0.44, -0.51, -0.22, 0.02), mw, 0, 0, 0);
+    }
+    if (M.floats) for (const z of [-0.2, 0.2]) {
+      add(box(0.5, 0.06, 0.07), lam('#e8e8e8'), 0.03, -0.24, z);
+      add(new THREE.ConeGeometry(0.035, 0.1, 8).rotateZ(-Math.PI / 2), lam('#e8e8e8'), 0.33, -0.235, z);
+      add(box(0.02, 0.2, 0.02), md, 0.05, -0.13, z); add(box(0.02, 0.2, 0.02), md, -0.12, -0.13, z);
+    }
+    if (M.prop && !parts.engine) add(new THREE.SphereGeometry(0.075, 10, 8), mb, 0.49, 0, 0);
+    else if (M.prop) add(new THREE.ConeGeometry(0.05, 0.09, 12).rotateZ(-Math.PI / 2), M.mil ? lam('#e94b3c') : md, 0.53, 0, 0); // spinner
+    if (!M.prop) nozzles.push([-0.5, 0, 0]);
+  } else if (st === 'gunship') {
+    add(cyl(0.05, 0.09, 0.4), mb, 0.28, 0, 0); add(cyl(0.09, 0.05, 0.6), mb, -0.22, 0, 0);
+    add(cyl(0.006, 0.006, 0.14, 6), md, 0.52, -0.03, 0); // nose cannon
+    if (parts.cockpit) add(new THREE.SphereGeometry(0.065, 12, 8), mg, 0.25, 0.07, 0).scale.set(1.6, 0.8, 0.9);
+    add(trap(0.12, -0.08, 0.07, -0.05, 0.62, 0.035), mw, 0, -0.02, 0); add(trap(0.12, -0.08, 0.07, -0.05, -0.62, 0.035), mw, 0, -0.02, 0);
+    for (const z of [-0.13, 0.13]) {
+      add(cyl(0.06, 0.055, 0.22), lam('#5d6a5c'), -0.27, 0.1, z); add(cyl(0.045, 0.045, 0.005), md, -0.159, 0.1, z);
+      add(box(0.1, 0.05, 0.02), mb, -0.25, 0.05, z); nozzles.push([-0.39, 0.1, z]);
+    }
+    add(trap(-0.4, -0.52, -0.45, -0.53, 0.22, 0.02), mw, 0, 0.02, 0); add(trap(-0.4, -0.52, -0.45, -0.53, -0.22, 0.02), mw, 0, 0.02, 0);
+    for (const z of [-0.22, 0.22]) add(box(0.12, 0.18, 0.02), mw, -0.47, 0.08, z);
+    for (const z of [-0.32, -0.42, 0.32, 0.42]) add(box(0.08, 0.04, 0.03), md, 0.02, -0.06, z); // bomb racks
+    roundel(0.0, 0.0, 0.45); roundel(0.0, 0.0, -0.45);
+    if (parts.wheels) for (const z of [-0.2, 0.2]) add(box(0.08, 0.05, 0.05), md, 0.06, -0.05, z);
+  } else if (st === 'fighter' || st === 'swing' || st === 'deltaJet' || st === 'shuttle') {
+    const long = st === 'swing' ? 1.1 : 1;
+    add(cyl(0.008, 0.075, 0.5 * long), mb, 0.27 * long, 0, 0); add(cyl(0.075, 0.065, 0.55), mb, -0.24, 0, 0);
+    if (parts.cockpit) { add(new THREE.SphereGeometry(0.06, 14, 8), mg, 0.24, 0.06, 0).scale.set(2.2, 0.85, 0.9); }
+    if (st === 'fighter') {
+      for (const z of [-0.09, 0.09]) { add(box(0.22, 0.08, 0.05), mb, 0.04, -0.02, z); add(box(0.005, 0.07, 0.045), md, 0.151, -0.02, z); }
+      add(trap(0.12, -0.25, -0.2, -0.32, 0.48, 0.022), mw, 0, -0.02, 0); add(trap(0.12, -0.25, -0.2, -0.32, -0.48, 0.022), mw, 0, -0.02, 0);
+      for (const z of [-0.08, 0.08]) add(box(0.16, 0.18, 0.015), mw, -0.4, 0.12, z, z < 0 ? -0.35 : 0.35, 0, 0.45); // canted twin tails
+      add(trap(-0.38, -0.5, -0.46, -0.53, 0.22, 0.015), mw, 0, -0.01, 0); add(trap(-0.38, -0.5, -0.46, -0.53, -0.22, 0.015), mw, 0, -0.01, 0);
+      missile(0.3); missile(-0.3); missile(0.42); missile(-0.42);
+      for (const z of [-0.04, 0.04]) nozzles.push([-0.52, 0, z]);
+    } else if (st === 'swing') {
+      add(trap(0.1, -0.05, 0.02, -0.08, 0.16, 0.03), mb, 0, 0.01, 0); add(trap(0.1, -0.05, 0.02, -0.08, -0.16, 0.03), mb, 0, 0.01, 0); // wing glove
+      add(trap(0.03, -0.12, -0.3, -0.38, 0.5, 0.02), mw, 0, 0.01, 0); add(trap(0.03, -0.12, -0.3, -0.38, -0.5, 0.02), mw, 0, 0.01, 0);
+      add(box(0.22, 0.26, 0.018), mw, -0.42, 0.15, 0, 0, 0, 0.5);
+      add(trap(-0.38, -0.5, -0.47, -0.53, 0.24, 0.015), mw, 0, 0, 0); add(trap(-0.38, -0.5, -0.47, -0.53, -0.24, 0.015), mw, 0, 0, 0);
+      for (const z of [-0.035, 0.035]) nozzles.push([-0.52, 0, z]);
+      missile(0.12); missile(-0.12);
+    } else { // delta interceptor / shuttle
+      add(trap(0.18, -0.45, -0.38, -0.47, 0.45, 0.025), mw, 0, -0.03, 0); add(trap(0.18, -0.45, -0.38, -0.47, -0.45, 0.025), mw, 0, -0.03, 0);
+      add(box(0.24, 0.26, 0.018), mw, -0.4, 0.14, 0, 0, 0, 0.6);
+      if (st === 'deltaJet') {
+        add(trap(0.32, 0.22, 0.26, 0.2, 0.14, 0.012), mw, 0, 0.01, 0); add(trap(0.32, 0.22, 0.26, 0.2, -0.14, 0.012), mw, 0, 0.01, 0); // canards
+        add(box(0.24, 0.06, 0.1), md, 0.05, -0.07, 0); missile(0.24); missile(-0.24);
+        roundel(-0.2, -0.015, 0.25); roundel(-0.2, -0.015, -0.25);
+      } else {
+        add(box(0.7, 0.02, 0.16), md, -0.05, -0.075, 0); // heat-shield belly
+        for (const z of [-0.05, 0.05]) add(cyl(0.035, 0.045, 0.06), md, -0.52, 0.04, z);
+      }
+      nozzles.push([-0.52, 0, 0]);
+    }
+    if (M.mil && st === 'fighter') { roundel(-0.12, -0.007, 0.3); roundel(-0.12, -0.007, -0.3); }
+  } else if (st === 'stealth') {
+    const body = new THREE.ConeGeometry(0.13, 1.0, 4).rotateY(Math.PI / 4).rotateZ(-Math.PI / 2); body.scale(1, 0.45, 1);
+    add(body, mb, 0.02, 0, 0);
+    if (parts.cockpit) add(new THREE.OctahedronGeometry(0.07, 0), mg, 0.2, 0.045, 0).scale.set(1.8, 0.5, 0.7);
+    add(trap(0.18, -0.36, -0.28, -0.4, 0.45, 0.02), mw, 0, -0.005, 0); add(trap(0.18, -0.36, -0.28, -0.4, -0.45, 0.02), mw, 0, -0.005, 0);
+    for (const z of [-0.1, 0.1]) add(box(0.17, 0.16, 0.012), mw, -0.36, 0.08, z, z < 0 ? -0.55 : 0.55, 0, 0.5);
+    for (const z of [-0.07, 0.07]) { add(box(0.12, 0.04, 0.05), md, 0.06, 0.03, z); nozzles.push([-0.45, 0.01, z]); }
+    add(box(0.3, 0.005, 0.02), lam('#555a66'), -0.1, 0.03, 0); // panel seam
+  } else if (st === 'flyingwing') {
+    add(new THREE.SphereGeometry(1, 16, 10), mb, 0.05, 0.01, 0).scale.set(0.34, 0.075, 0.2);
+    add(trap(0.36, -0.22, -0.13, -0.28, 0.8, 0.045), mw, 0, -0.005, 0); add(trap(0.36, -0.22, -0.13, -0.28, -0.8, 0.045), mw, 0, -0.005, 0);
+    for (const z of [0.22, -0.22]) add(trap(-0.12, -0.36, -0.17, -0.3, z * 1.0, 0.03), mw, 0, -0.005, z > 0 ? 0.18 : -0.18); // sawtooth trailing edge
+    for (const z of [0.5, -0.5]) add(trap(-0.15, -0.3, -0.17, -0.27, z > 0 ? 0.14 : -0.14, 0.025), mw, 0, -0.005, z);
+    if (parts.cockpit) for (const z of [-0.04, 0.04]) add(box(0.06, 0.02, 0.05), mg, 0.24, 0.05, z, 0, 0, -0.35);
+    for (const z of [-0.14, 0.14]) { add(box(0.18, 0.035, 0.09), mb, -0.02, 0.05, z); add(box(0.005, 0.02, 0.08), md, 0.071, 0.06, z); nozzles.push([-0.27, 0.03, z]); }
+  } else if (st === 'spy') {
+    add(cyl(0.005, 0.055, 0.6), mb, 0.2, 0, 0); add(cyl(0.055, 0.04, 0.45), mb, -0.32, 0, 0);
+    add(trap(0.48, -0.1, -0.1, -0.15, 0.09, 0.012), mb, 0, 0, 0); add(trap(0.48, -0.1, -0.1, -0.15, -0.09, 0.012), mb, 0, 0, 0); // chines
+    if (parts.cockpit) add(new THREE.SphereGeometry(0.04, 12, 8), mg, 0.22, 0.04, 0).scale.set(2.5, 0.8, 0.9);
+    add(trap(0.0, -0.45, -0.35, -0.46, 0.4, 0.015), mw, 0, -0.01, 0); add(trap(0.0, -0.45, -0.35, -0.46, -0.4, 0.015), mw, 0, -0.01, 0);
+    for (const z of [-0.22, 0.22]) {
+      add(cyl(0.05, 0.052, 0.55), mb, -0.15, 0, z);
+      add(new THREE.ConeGeometry(0.03, 0.12, 10).rotateZ(-Math.PI / 2), mm, 0.17, 0, z); // inlet spike
+      add(box(0.15, 0.13, 0.012), mw, -0.36, 0.08, z, z < 0 ? -0.25 : 0.25, 0, 0.45);
+      nozzles.push([-0.43, 0, z]);
+    }
+    add(box(0.25, 0.004, 0.02), lam('#c0392b'), 0.05, 0.05, 0);
   }
-  if (parts.tanks) for (const z of [-0.3, 0.3]) add(new THREE.CylinderGeometry(0.035, 0.035, 0.28, 10).rotateZ(Math.PI / 2), lam('#d0d0d0'), 0.06, -0.08, z);
-  if (parts.winglets && !M.delta && !jet) for (const z of [-span / 2, span / 2]) add(new THREE.BoxGeometry(0.16, 0.1, 0.012), mw, 0.04, 0.02, z);
-  if (M.delta) {
-    add(new THREE.BoxGeometry(0.42, 0.025, 0.5), mw, -0.12, -0.03, 0.27, 0, 0.75, 0);
-    add(new THREE.BoxGeometry(0.42, 0.025, 0.5), mw, -0.12, -0.03, -0.27, 0, -0.75, 0);
-  } else if (jet) {
-    add(new THREE.BoxGeometry(0.2, 0.025, 0.55), mw, -0.02, -0.03, 0.3, 0, 0.45, 0);
-    add(new THREE.BoxGeometry(0.2, 0.025, 0.55), mw, -0.02, -0.03, -0.3, 0, -0.45, 0);
-  } else {
-    add(new THREE.BoxGeometry(0.22, 0.025, span), mw, 0.06, -0.03, 0);
-    for (const z of [-span / 2, span / 2]) add(new THREE.BoxGeometry(0.2, 0.03, 0.06), lam(z < 0 ? '#e63946' : '#2fbf4a'), 0.06, -0.03, z); // nav-light tips
+
+  // merge all static parts that share a material into one mesh: ~8 draw calls per plane instead of 40+
+  const byMat = new Map();
+  for (const ch of g.children.slice()) if (ch.isMesh) { ch.updateMatrix(); const l = byMat.get(ch.material) || []; l.push(ch); byMat.set(ch.material, l); }
+  for (const [mat, list] of byMat) {
+    if (list.length < 2) continue;
+    const geo = merge(list.map((m) => [m.geometry, m.matrix]));
+    for (const m of list) { g.remove(m); m.geometry.dispose(); }
+    g.add(new THREE.Mesh(geo, mat));
   }
-  if (M.bi) {
-    add(new THREE.BoxGeometry(0.22, 0.025, 1.15), mw, 0.08, 0.2, 0);
-    for (const z of [-0.4, 0.4]) for (const x of [0.0, 0.14]) add(new THREE.BoxGeometry(0.015, 0.22, 0.015), md, x, 0.09, z);
-  }
-  if (parts.tail) {
-    add(new THREE.BoxGeometry(0.17, 0.22, 0.02), mw, -0.42, 0.12, 0, 0, 0, 0.35);
-    add(new THREE.BoxGeometry(0.14, 0.02, jet ? 0.34 : 0.42), mw, -0.44, 0.0, 0);
-  }
-  if (M.floats) {
-    for (const z of [-0.2, 0.2]) { add(new THREE.BoxGeometry(0.55, 0.06, 0.07), lam('#e8e8e8'), 0.03, -0.24, z); add(new THREE.BoxGeometry(0.02, 0.2, 0.02), md, 0.05, -0.13, z); }
-  }
-  prop = null; jetFlame = null;
-  if (M.prop && !parts.engine) {
-    add(new THREE.SphereGeometry(0.075, 8, 6), mb, 0.49, 0, 0); // plain cardboard nose
-  } else if (M.prop) {
-    add(new THREE.SphereGeometry(0.05, 8, 6), md, 0.5, 0, 0);
+  prop = null;
+  if (M.prop && parts.engine) {
     prop = new THREE.Group(); prop.position.set(0.53, 0, 0);
-    const blade = new THREE.Mesh(new THREE.BoxGeometry(0.015, 0.52, 0.05), md);
+    const blade = new THREE.Mesh(box(0.015, 0.52, 0.05), md);
+    for (const y of [-0.24, 0.24]) { const tip = new THREE.Mesh(box(0.017, 0.04, 0.052), lam('#ffcf3a')); tip.position.set(0, y, 0); blade.add(tip); }
     const disc = new THREE.Mesh(new THREE.CircleGeometry(0.27, 18).rotateY(Math.PI / 2), new THREE.MeshBasicMaterial({ color: '#ffffff', transparent: true, opacity: 0.18, depthWrite: false, side: THREE.DoubleSide }));
     prop.add(blade, disc); g.add(prop);
-  } else {
-    add(cyl(0.045, 0.05, 0.05), md, -0.5, 0, 0);
-    jetFlame = add(new THREE.ConeGeometry(0.04, 0.22, 8).rotateZ(Math.PI / 2), new THREE.MeshBasicMaterial({ color: '#7fd0ff', transparent: true, opacity: 0.85 }), -0.62, 0, 0);
   }
-  rocketFlame = add(new THREE.ConeGeometry(0.07, 0.5, 8).rotateZ(Math.PI / 2), new THREE.MeshBasicMaterial({ color: '#ffb43a', transparent: true, opacity: 0.9 }), -0.75, 0, 0);
+  jetFlame = null; rocketFlame = new THREE.Group(); g.add(rocketFlame);
+  if (nozzles.length) {
+    jetFlame = new THREE.Group(); g.add(jetFlame);
+    const jm = new THREE.MeshBasicMaterial({ color: '#7fd0ff', transparent: true, opacity: 0.85 });
+    for (const [x, y, z] of nozzles) {
+      add(cyl(0.035, 0.04, 0.04), md, x + 0.01, y, z);
+      const f = new THREE.Mesh(new THREE.ConeGeometry(0.032, 0.2, 8).rotateZ(Math.PI / 2), jm); f.position.set(x - 0.11, y, z); jetFlame.add(f);
+    }
+  }
+  const rm = new THREE.MeshBasicMaterial({ color: '#ffb43a', transparent: true, opacity: 0.9 });
+  for (const [x, y, z] of nozzles.length ? nozzles : [[-0.5, 0, 0]]) { const f = new THREE.Mesh(new THREE.ConeGeometry(0.06, 0.45, 8).rotateZ(Math.PI / 2), rm); f.position.set(x - 0.24, y, z); rocketFlame.add(f); }
   g.scale.setScalar(len);
   planeGroup = g;
   scene.add(g);
@@ -286,6 +424,90 @@ export function setPlane(model, paint, len, parts) {
   ghost.traverse((o) => { if (o.isMesh) o.material = gm; });
   ghost.visible = false;
   scene.add(ghost);
+}
+
+// ----------------------------------------------------------------- slingshot looks
+// Built in units of the fork height L (forkY 0.62, tips at y 1.18, z +-0.68), scaled each frame.
+const SLING_LOOK = [
+  { wood: '#7a4e28', band: '#2b1a0e' }, { wood: '#8a5a30', band: '#3a2412' }, { wood: '#6b4428', band: '#1b1b1b' },
+  { wood: '#4a3020', band: '#222222' }, { wood: '#8a6a3a', band: '#3a2a1a', metal: true }, { wood: '#d9a92a', band: '#7a1f3a', gold: true },
+  { wood: '#2a2f45', band: '#38e0ff', glow: '#38e0ff' }, { wood: '#2a1a3a', band: '#ff4fd8', glow: '#ff4fd8' },
+];
+export function setSling(tier) {
+  if (tier === slingTierBuilt) return;
+  slingTierBuilt = tier;
+  while (slingDeco.children.length) slingDeco.remove(slingDeco.children[0]);
+  slingAnim = [];
+  const look = SLING_LOOK[tier];
+  site.userData.wood.color.set(look.wood);
+  site.userData.wood.emissive.set(look.gold ? '#3a2a00' : '#000000');
+  site.userData.band.color.set(look.band);
+  site.userData.band.emissive.set(look.glow || '#000000');
+  const mats = new Map();
+  const mat = (c, e) => { const k = c + JSON.stringify(e || {}); let m = mats.get(k); if (!m) { m = lam(c, e); mats.set(k, m); } return m; };
+  const live = (m) => { m.userData.live = true; return m; }; // animated: keep as its own mesh
+  const D = (geo, color, x, y, z, rx, ry, rz, extra) => { const m = new THREE.Mesh(geo, mat(color, extra)); m.position.set(x, y, z); m.rotation.set(rx || 0, ry || 0, rz || 0); slingDeco.add(m); return m; };
+  const armPt = (f, side) => [0, 0.56 + (1.18 - 0.56) * f, side * 0.68 * f]; // along an arm, f 0..1
+  const ring = (r, t, color, x, y, z, rx, extra) => D(new THREE.TorusGeometry(r, t, 6, 16), color, x, y, z, rx || Math.PI / 2, 0, 0, extra);
+  // base platform
+  if (tier >= 1) for (let i = 0; i < 7; i++) { const a = i / 7 * 6.283; D(new THREE.IcosahedronGeometry(0.09, 0), '#8a8f96', Math.cos(a) * 0.2, 0.04, Math.sin(a) * 0.2, a, a, 0); }
+  if (tier >= 2) D(new THREE.CylinderGeometry(0.32, 0.36, 0.08, tier >= 5 ? 16 : 8), tier >= 5 ? '#efe6d8' : tier >= 4 ? '#5a5f66' : '#7a5530', 0, 0.04, 0);
+  if (tier >= 5) ring(0.34, 0.015, '#ffcf3a', 0, 0.085, 0, Math.PI / 2, { emissive: '#4a3000' });
+  // wraps along the arms and trunk
+  if (tier >= 1) {
+    const c = tier >= 4 ? (tier >= 5 ? '#ffcf3a' : '#b87333') : tier >= 2 ? '#3a3a3a' : '#d8c08a';
+    ring(0.07, 0.022, c, 0, 0.3, 0);
+    for (const side of [-1, 1]) for (const f of [0.35, 0.75]) { const [x, y, z] = armPt(f, side); ring(0.06, 0.02, c, x, y, z, Math.PI / 2 - side * 0.84); }
+  }
+  // tip caps
+  for (const side of [-1, 1]) {
+    const [x, y, z] = armPt(1, side);
+    if (tier >= 3 && tier < 5) D(new THREE.ConeGeometry(0.06, 0.18, 6), tier >= 4 ? '#c0c0c0' : '#9aa0a6', x, y + 0.1, z);
+    if (tier === 5) D(new THREE.OctahedronGeometry(0.08, 0), side > 0 ? '#e63946' : '#3f8ff5', x, y + 0.1, z, 0, 0, 0, { emissive: side > 0 ? '#500' : '#012a60' });
+    if (tier >= 6) { const cr = live(D(new THREE.OctahedronGeometry(0.09, 0), look.glow, x, y + 0.18, z, 0, 0, 0, { emissive: look.glow })); slingAnim.push((t) => { cr.rotation.y = t * 2; cr.position.y = y + 0.18 + Math.sin(t * 2 + side) * 0.04; }); }
+  }
+  // spikes around the base and arms
+  if (tier >= 3 && tier < 6) for (let i = 0; i < 6; i++) { const a = i / 6 * 6.283 + 0.3; D(new THREE.ConeGeometry(0.03, 0.14, 5), '#c8c8c8', Math.cos(a) * 0.3, 0.12, Math.sin(a) * 0.3, Math.cos(a) * 0.5, 0, -Math.sin(a) * 0.5); }
+  if (tier === 3 || tier === 5) { // banner flag
+    const [x, y, z] = armPt(0.85, -1);
+    D(new THREE.CylinderGeometry(0.008, 0.008, 0.4, 5), '#3a2a1a', x, y + 0.25, z);
+    const flag = live(D(new THREE.BoxGeometry(0.004, 0.13, 0.2), tier === 5 ? '#7a1f3a' : '#c0392b', x, y + 0.36, z - 0.1));
+    slingAnim.push((t) => { flag.rotation.x = Math.sin(t * 3) * 0.15; });
+  }
+  // steampunk: pistons + spinning gears
+  if (tier === 4) {
+    for (const side of [-1, 1]) { const [x, y, z] = armPt(0.5, side); D(new THREE.CylinderGeometry(0.025, 0.025, 0.3, 8), '#9aa3ad', x + 0.06, y, z, side * 0.84, 0, 0); }
+    for (const [y, z, r] of [[0.32, 0.1, 0.09], [0.42, -0.12, 0.07]]) {
+      const gear = new THREE.Group(); gear.position.set(0.07, y, z);
+      gear.add(new THREE.Mesh(new THREE.CylinderGeometry(r, r, 0.02, 12).rotateZ(Math.PI / 2), lam('#b87333')));
+      for (let i = 0; i < 8; i++) { const tth = new THREE.Mesh(new THREE.BoxGeometry(0.02, 0.03, 0.03), lam('#b87333')); const a = i / 8 * 6.283; tth.position.set(0, Math.cos(a) * r, Math.sin(a) * r); gear.add(tth); }
+      slingDeco.add(gear); slingAnim.push((t) => { gear.rotation.x = t * (r > 0.08 ? 1.5 : -2.1); });
+    }
+  }
+  // energy rune ring + floating rings and rocks for the top tiers
+  if (tier >= 6) {
+    const rune = live(ring(0.42, 0.012, look.glow, 0, 0.02, 0, Math.PI / 2, { emissive: look.glow }));
+    slingAnim.push((t) => { rune.rotation.z = t * 0.5; });
+  }
+  if (tier === 7) {
+    for (const [r, sp, tilt] of [[0.55, 1.2, 0.3], [0.7, -0.8, -0.4]]) {
+      const rg = live(ring(r, 0.018, look.glow, 0, 0.9, 0, Math.PI / 2 + tilt, { emissive: look.glow }));
+      slingAnim.push((t) => { rg.rotation.z = t * sp; });
+    }
+    for (let i = 0; i < 4; i++) {
+      const rock = live(D(new THREE.IcosahedronGeometry(0.06, 0), '#4a3a5a', 0, 0, 0));
+      slingAnim.push((t) => { const a = t * 0.8 + i * 1.57; rock.position.set(Math.cos(a) * 0.5, 0.5 + Math.sin(t * 1.3 + i) * 0.1, Math.sin(a) * 0.5); rock.rotation.set(t, t * 1.3, 0); });
+    }
+  }
+  // merge the static decoration by material so a fancy slingshot is still only a few draw calls
+  const byMat = new Map();
+  for (const ch of slingDeco.children.slice()) if (ch.isMesh && !ch.userData.live) { ch.updateMatrix(); const l = byMat.get(ch.material) || []; l.push(ch); byMat.set(ch.material, l); }
+  for (const [m, list] of byMat) {
+    if (list.length < 2) continue;
+    const geo = merge(list.map((o) => [o.geometry, o.matrix]));
+    for (const o of list) { slingDeco.remove(o); o.geometry.dispose(); }
+    slingDeco.add(new THREE.Mesh(geo, m));
+  }
 }
 
 // ----------------------------------------------------------------- scenery recycling
@@ -341,6 +563,8 @@ export function frame(v) {
 
   // ---- plane
   planeGroup.visible = v.showPlane;
+  shieldMesh.visible = !!v.shield && v.showPlane;
+  if (shieldMesh.visible) { shieldMesh.position.set(v.px, v.py, v.pz); shieldMesh.scale.setScalar(L * (0.75 + Math.sin(v.t * 6) * 0.03)); shieldMesh.material.opacity = 0.16 + Math.sin(v.t * 4) * 0.06; }
   if (ghost) {
     ghost.visible = !!v.ghost;
     if (v.ghost) { ghost.position.set(v.ghost.x, v.ghost.y, v.ghost.z); ghost.rotation.set(0, -v.ghost.h, v.ghost.p, 'YZX'); }
@@ -348,8 +572,8 @@ export function frame(v) {
   planeGroup.position.set(v.px, v.py, v.pz);
   planeGroup.rotation.set(v.bank, -v.heading, v.pitch, 'YZX');
   if (prop) prop.rotation.x = v.t * (v.mode === 'hangar' ? 6 : 40);
-  if (jetFlame) { jetFlame.visible = v.engineOn; jetFlame.scale.x = 0.8 + Math.sin(v.t * 60) * 0.25; }
-  rocketFlame.visible = v.rocketOn; rocketFlame.scale.set(0.9 + Math.sin(v.t * 50) * 0.2, 1, 1);
+  if (jetFlame) { jetFlame.visible = v.engineOn; const f = 0.8 + Math.sin(v.t * 60) * 0.25; for (const c of jetFlame.children) c.scale.x = f; }
+  rocketFlame.visible = v.rocketOn; { const f = 0.9 + Math.sin(v.t * 50) * 0.2; for (const c of rocketFlame.children) c.scale.x = f; }
   shadow.visible = v.showPlane;
   const shAlt = Math.max(0, v.py) / L;
   shadow.position.set(v.px, 0.03 * s, v.pz);
@@ -368,6 +592,8 @@ export function frame(v) {
     const hs = s * (L / (4 * s));
     for (const o of ud.scaled) o.scale.multiplyScalar(1); // keep authoring scale
     ud.hangar.position.set(-16 * hs, 0, -14 * hs); ud.hangar.scale.setScalar(hs);
+    slingDeco.scale.setScalar(L);
+    for (const f of slingAnim) f(v.t);
     const tailX = v.mode === 'fly' || v.mode === 'ending' || v.mode === 'result' || v.mode === 'paused' ? 0 : v.px - Math.cos(v.heading) * 0.45 * L;
     const tailY = v.mode === 'fly' || v.mode === 'ending' || v.mode === 'result' || v.mode === 'paused' ? tipY - 0.05 * L : v.py;
     const tailZ = v.mode === 'fly' || v.mode === 'ending' || v.mode === 'result' || v.mode === 'paused' ? 0 : v.pz - Math.sin(v.heading) * 0.45 * L;
@@ -402,6 +628,13 @@ export function frame(v) {
         break;
       }
       case 'ring': pools.ring.add(e.x, e.y, e.z, e.r, e.r, e.r, 0); break;
+      case 'pring': {
+        const c = colorOf(PW_COL[e.pw]), pul = 1 + Math.sin(t * 5) * 0.06;
+        pools.pring.add(e.x, e.y, e.z, e.r * pul, e.r * pul, e.r * pul, 0, c, t * 2);
+        pools.pring.add(e.x, e.y, e.z, e.r * 0.8, e.r * 0.8, e.r * 0.8, 0, c, -t * 3);
+        pools.picon.add(e.x, e.y, e.z, 1.3 * s, 1.6 * s, 1.3 * s, t * 2.5, c);
+        break;
+      }
       case 'balloon': {
         const by = e.y + Math.sin(t * 1.5 + e.x) * 0.3 * s;
         pools.balloon.add(e.x, by, e.z, 2.4 * s, 2.8 * s, 2.4 * s, 0, colorOf(BALLOON_C[e.hue]));
@@ -493,6 +726,7 @@ export function frame(v) {
   sunGlow.position.copy(sunDisc.position); sunGlow.scale.setScalar(sd * 0.08); sunGlow.lookAt(camera.position);
   renderer.render(scene, camera);
 }
+const PW_COL = { shield: '#38b6ff', magnet: '#c56bff', turbo: '#ff4a2a', feather: '#7be276', x2: '#ffd23a' };
 const BALLOON_C = ['#ff5a5a', '#ffcf3a', '#5fd35a', '#3f8ff5', '#c56bff', '#ff8ad8'];
 
 function drawObst(e, t) {
@@ -503,15 +737,22 @@ function drawObst(e, t) {
       const c1 = col.setHSL(0.27 + sd * 0.06, 0.55, 0.3 + sd * 0.08);
       pools.canopy.add(x, h * 0.62, z, w * 1.15, h * 0.62, w * 1.15, sd * 6, c1);
       pools.canopy.add(x + w * 0.1, h * 0.86, z - w * 0.05, w * 0.75, h * 0.38, w * 0.75, sd * 9, col.setHSL(0.28 + sd * 0.06, 0.55, 0.4 + sd * 0.08));
+      pools.canopy.add(x - w * 0.3, h * 0.6, z + w * 0.25, w * 0.6, h * 0.35, w * 0.6, sd * 4, col.setHSL(0.26 + sd * 0.06, 0.5, 0.28 + sd * 0.08));
+      if (sd > 0.7) for (let k = 0; k < 3; k++) pools.flower.add(x + Math.cos(k * 2 + sd) * w * 0.45, h * (0.55 + k * 0.1), z + Math.sin(k * 2 + sd) * w * 0.45, w * 0.12, w * 0.12, w * 0.12, 0, colorOf('#e63946')); // apples
       break;
     }
     case 'rock':
       pools.rock.add(x, h * 0.35, z, w, h * 1.1, w * 0.9, sd * 6, colorOf(e.col), sd * 2, sd * 3);
       pools.rock.add(x + w * 0.35, h * 0.15, z + w * 0.25, w * 0.45, h * 0.5, w * 0.45, sd * 9, colorOf(e.col));
+      pools.rock.add(x - w * 0.3, h * 0.1, z - w * 0.3, w * 0.3, h * 0.3, w * 0.3, sd * 5, colorOf(e.col));
+      if (e.col === '#8a8f96') pools.rock.add(x, h * 0.78, z, w * 0.75, h * 0.25, w * 0.65, sd * 6, colorOf('#5f8f3a')); // moss cap
+      if (e.col === '#cfe3f2') pools.rock.add(x, h * 0.8, z, w * 0.7, h * 0.22, w * 0.6, sd * 6, colorOf('#ffffff')); // snow cap
       break;
     case 'iceberg':
       pools.cone.add(x, 0, z, w, h, w * 0.85, sd * 6, colorOf('#e6f6ff'));
       pools.cone.add(x + w * 0.25, 0, z - w * 0.15, w * 0.55, h * 0.7, w * 0.5, sd * 4, colorOf('#bfe3f7'));
+      pools.cone.add(x - w * 0.2, 0, z + w * 0.2, w * 0.4, h * 0.45, w * 0.4, sd * 3, colorOf('#9fd0ee'));
+      pools.cyl.add(x, 0, z, w * 1.15, h * 0.04, w * 1.15, 0, colorOf('#e8f8ff')); // foam ring
       break;
     case 'windmill': {
       const g = e.sg;
@@ -534,6 +775,11 @@ function drawObst(e, t) {
       pools.box.add(x, 4.2 * u, z, L * 1.01, 1 * u, 9.1 * u, 0, colorOf('#f4f4f4'));
       pools.box.add(x - L * 0.15, 5 * u, z, 10 * u, 6.5 * u, 6 * u, 0, colorOf('#ffffff'));
       pools.cyl.add(x - L * 0.15, 11 * u, z, 2 * u, 3 * u, 2 * u, 0, colorOf('#1b2240'));
+      pools.cyl.add(x - L * 0.15, 13.2 * u, z, 2.05 * u, 0.6 * u, 2.05 * u, 0, colorOf('#ff3b3b')); // funnel stripe
+      for (const zz of [-1, 1]) pools.box.add(x - L * 0.15, 6.5 * u, z + zz * 3.4 * u, 4 * u, 1.1 * u, 1.2 * u, 0, colorOf('#ff8c1a')); // lifeboats
+      pools.box.add(x - L * 0.08, 5.8 * u, z, 10.2 * u, 1 * u, 6.1 * u, 0, colorOf('#2a4a9a')); // bridge windows
+      pools.cyl.add(x - L * 0.3, 11.5 * u, z, 0.25 * u, 5 * u, 0.25 * u, 0, colorOf('#cccccc')); // mast
+      pools.box.add(x + L * 0.25, 5 * u, z, L * 0.18, 1.5 * u, 6 * u, 0, colorOf('#8a6a3a')); // deck cargo
       break;
     }
     case 'blimp': {
@@ -542,6 +788,9 @@ function drawObst(e, t) {
       pools.box.add(x + e.a * 0.1, y - e.b * 1.3, z, e.a * 0.35, e.b * 0.35, e.b * 0.4, 0, colorOf('#3a3f55'));
       pools.box.add(x - e.a * 0.85, y, z, e.a * 0.25, e.b * 1.2, e.b * 0.1, 0, colorOf('#ff3b5c'));
       pools.box.add(x - e.a * 0.85, y - e.b * 0.05, z, e.a * 0.25, e.b * 0.1, e.b * 1.2, 0, colorOf('#ff3b5c'));
+      pools.ell.add(x, y, z, e.a * 0.25, e.b * 1.02, e.b * 1.02, 0, colorOf(sd < 0.5 ? '#3f8ff5' : '#e63946')); // belly band
+      pools.box.add(x + e.a * 0.1, y - e.b * 1.18, z, e.a * 0.3, e.b * 0.08, e.b * 0.42, 0, colorOf('#9fdcff')); // gondola windows
+      pools.ell.add(x - e.a * 0.97, y, z, e.b * 0.15, e.b * 0.15, e.b * 0.15, t * 6, colorOf('#555555')); // tail prop hub
       break;
     }
     case 'mine': {
@@ -554,11 +803,15 @@ function drawObst(e, t) {
       pools.box.add(x, e.y - 1.6 * u, z, 3.2 * u, 3.2 * u, 3.2 * u, 0, colorOf('#d8b04a'));
       pools.box.add(x, e.y - 1.2 * u, z, 0.2 * u, 2.4 * u, 15 * u, 0, colorOf('#2a4a9a'));
       pools.cyl.add(x, e.y + 1.6 * u, z, 0.3 * u, 2 * u, 0.3 * u, 0, colorOf('#cccccc'));
+      pools.dome.add(x + 1.8 * u, e.y - 1.2 * u, z, 2.4 * u, 0.8 * u, 2.4 * u, 0, colorOf('#e8e8e8'), 0, -Math.PI / 2); // dish
+      for (const zz of [-1, 1]) for (let k = 1; k < 5; k++) pools.box.add(x, e.y - 1.25 * u, z + zz * k * 1.7 * u, 0.22 * u, 2.5 * u, 0.08 * u, 0, colorOf('#9aa3ad')); // panel grid
       break;
     }
     case 'silo':
       pools.cyl.add(x, 0, z, w, h, w, 0, colorOf(sd < 0.5 ? '#c0392b' : '#d8d2c4'));
       pools.dome.add(x, h, z, w, w, w, 0, colorOf('#e6e6e6'));
+      for (let f = 0.2; f < 0.95; f += 0.25) pools.cyl.add(x, h * f, z, w * 1.04, h * 0.025, w * 1.04, 0, colorOf('#7a7a7a')); // steel bands
+      pools.box.add(x, h * 0.55, z + w * 0.5, w * 0.08, h * 0.9, w * 0.08, 0, colorOf('#5a5a5a')); // ladder
       break;
     case 'cactus': {
       const c = colorOf('#3e9b4f');
@@ -567,6 +820,8 @@ function drawObst(e, t) {
       pools.box.add(x - w * 0.4, h * 0.35, z, w * 0.4, w * 0.25, w * 0.3, 0, c);
       pools.box.add(x + w * 0.55, h * 0.45, z, w * 0.3, h * 0.3, w * 0.3, 0, c);
       pools.box.add(x + w * 0.4, h * 0.45, z, w * 0.4, w * 0.25, w * 0.3, 0, c);
+      pools.box.add(x, 0, z, w * 0.52, h, w * 0.12, 0, colorOf('#5fbf6a')); // ribs
+      pools.flower.add(x, h + w * 0.1, z, w * 0.35, w * 0.25, w * 0.35, 0, colorOf(sd < 0.5 ? '#ff5fa2' : '#ffcf3a')); // flower
       break;
     }
     case 'pillar':
@@ -575,8 +830,18 @@ function drawObst(e, t) {
       break;
     case 'pine':
     case 'spire':
-      pools.cone.add(x, 0, z, w, h, w, sd * 6, colorOf(e.t === 'pine' ? '#2f6b4a' : '#2a1a1a'));
-      pools.cone.add(x, h * 0.72, z, w * 0.3, h * 0.28, w * 0.3, sd * 6, colorOf(e.t === 'pine' ? '#ffffff' : '#ff6a2a'));
+      if (e.t === 'pine') { // layered branches + trunk + snow tips
+        pools.trunk.add(x, 0, z, w * 0.12, h * 0.25, w * 0.12, 0);
+        pools.cone.add(x, h * 0.12, z, w, h * 0.45, w, sd * 6, colorOf('#2f6b4a'));
+        pools.cone.add(x, h * 0.38, z, w * 0.75, h * 0.38, w * 0.75, sd * 6 + 0.4, colorOf('#357a52'));
+        pools.cone.add(x, h * 0.6, z, w * 0.5, h * 0.4, w * 0.5, sd * 6 + 0.8, colorOf('#3d8a5c'));
+        pools.cone.add(x, h * 0.82, z, w * 0.22, h * 0.18, w * 0.22, sd * 6, colorOf('#ffffff'));
+      } else { // volcanic spire with glowing cracks
+        pools.cone.add(x, 0, z, w, h, w, sd * 6, colorOf('#2a1a1a'));
+        pools.cone.add(x, h * 0.72, z, w * 0.3, h * 0.28, w * 0.3, sd * 6, colorOf('#ff6a2a'));
+        pools.cone.add(x + w * 0.2, 0, z + w * 0.1, w * 0.45, h * 0.4, w * 0.45, sd * 3, colorOf('#3a2222'));
+        pools.flower.add(x, h * 0.35, z + w * 0.3, w * 0.12, h * 0.15, w * 0.12, 0, colorOf('#ff8a2a'));
+      }
       break;
     case 'tower': {
       pools.box.add(x, 0, z, w, h, w, 0, colorOf(sd < 0.5 ? '#3c4a63' : '#56657f'));
@@ -587,6 +852,9 @@ function drawObst(e, t) {
       for (let f = 0.25; f < 0.95; f += 0.22) pools.box.add(x, h * f, z, w * 1.03, h * 0.03, w * 1.03, 0, bc);
       pools.box.add(x, h, z, w * 0.7, h * 0.03, w * 0.7, 0, colorOf('#2a3346'));
       pools.box.add(x, h, z, w * 0.05, h * 0.1, w * 0.05, 0, colorOf('#ff3b3b'));
+      pools.box.add(x + w * 0.2, h * 1.03, z - w * 0.15, w * 0.18, h * 0.03, w * 0.14, 0, colorOf('#9aa3ad')); // rooftop AC units
+      pools.box.add(x - w * 0.18, h * 1.03, z + w * 0.12, w * 0.14, h * 0.025, w * 0.18, 0, colorOf('#9aa3ad'));
+      pools.box.add(x, 0, z, w * 1.05, h * 0.06, w * 1.05, 0, colorOf('#2a3346')); // lobby
       break;
     }
     case 'barn': {
@@ -594,11 +862,15 @@ function drawObst(e, t) {
       pools.box.add(x, 0, z, L, wh, D, 0, colorOf('#b8322a'));
       pools.prism.add(x, wh, z, L * 1.04, e.h - wh, D * 1.08, 0, colorOf('#4a3a34'));
       pools.box.add(x + L * 0.5, 0, z, 0.3 * e.sg, wh * 0.7, D * 0.45, 0, colorOf('#f4f1ea'));
+      pools.box.add(x + L * 0.51, wh * 0.33, z, 0.3 * e.sg, wh * 0.06, D * 0.45, 0.6, colorOf('#b8322a')); // door X
+      pools.box.add(x + L * 0.51, wh * 0.33, z, 0.3 * e.sg, wh * 0.06, D * 0.45, -0.6, colorOf('#b8322a'));
+      pools.box.add(x, 0, z, L * 1.01, wh * 0.08, D * 1.01, 0, colorOf('#f4f1ea')); // trim
       break;
     }
     case 'buoy':
       pools.cyl.add(x, 0, z, w, h, w, 0, colorOf('#ff3b3b'));
       pools.cyl.add(x, h * 0.4, z, w * 1.03, h * 0.2, w * 1.03, 0, colorOf('#ffffff'));
+      if (Math.sin(t * 4 + sd * 9) > 0) pools.flower.add(x, h + w * 0.15, z, w * 0.3, w * 0.3, w * 0.3, 0, colorOf('#ffe14d')); // blinking light
       break;
   }
 }
