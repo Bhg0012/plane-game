@@ -60,7 +60,7 @@ import * as W3 from './world3d.js';
   ];
 
   // ===================================================================== save
-  const VERSION = '1.15';
+  const VERSION = '1.16';
   const KEY = 'skyfling.save.v1';
   function defaults() {
     return {
@@ -435,8 +435,8 @@ import * as W3 from './world3d.js';
       const dz = (r() - 0.5) * 6 * sig, dyA = (2 + r() * 4) * sig;
       for (let i = 0; i < n; i++) fresh.push({ k: 'ring', x: bx + i * 16 * sig, y: by + Math.sin(i * 0.9) * dyA, z: bz + i * dz, r: 5 * sig, chain: ci, len: n, dead: false });
     } else if (r() < 0.5 && ci >= 1) fresh.push({ k: 'ring', x: x0 + r() * CH * sig, y: (8 + r() * ceil * 0.6) * sig, z: zc + (r() - 0.5) * SPREAD * sig, r: 5 * sig, dead: false });
-    if (S.lv.rocket > 0 && ci >= 2 && r() < 0.08) fresh.push({ k: 'rfuel', x: x0 + r() * CH * sig, y: (6 + r() * ceil * 0.55) * sig, z: zr(), dead: false });
-    if (r() < 0.16 && ci >= 1) fresh.push({ k: 'fuel', x: x0 + r() * CH * sig, y: (5 + r() * ceil * 0.5) * sig, z: zr(), dead: false });
+    if (S.lv.rocket > 0 && ci >= 2 && r() < 0.08) fresh.push({ k: 'rfuel', x: x0 + r() * CH * sig, y: (6 + r() * ceil * 0.55) * sig, z: zr(), r: 4.5 * sig, dead: false });
+    if (r() < 0.16 && ci >= 1) fresh.push({ k: 'fuel', x: x0 + r() * CH * sig, y: (5 + r() * ceil * 0.5) * sig, z: zr(), r: 4.5 * sig, dead: false });
     if (r() < 0.22 && ci >= 2) fresh.push({ k: 'balloon', x: x0 + r() * CH * sig, y: (6 + r() * ceil * 0.5) * sig, z: zr(), hue: Math.floor(r() * 6), dead: false });
     if (r() < 0.18 && ci >= 1) fresh.push({ k: 'lift', x: x0 + r() * CH * sig, y: 0, z: zr(), w: 10 * sig, top: ceil * 0.9 * sig, dead: false });
     if (r() < 0.09 && ci >= 2) fresh.push({ k: 'gem', x: x0 + r() * CH * sig, y: (ceil * (0.4 + r() * 0.5)) * sig, z: zr(), dead: false });
@@ -628,6 +628,7 @@ import * as W3 from './world3d.js';
   const prev = { x: 0, y: 0, z: 0, p: 0, h: 0, gam: 0 }; // last physics state, for smooth interpolation between steps
   const planeLen = () => 3 * sig * P.st.scale * 1.3; // drawn a bit larger than the hitbox
   const HSTEP = 1 / 120;
+  let hstep = HSTEP;
 
   function resetPlane() {
     P.st = C.planeStats(S.lv.plane);
@@ -703,7 +704,7 @@ import * as W3 from './world3d.js';
     prev.x = P.x; prev.y = P.y; prev.z = P.z; prev.p = P.p; prev.h = P.h; prev.gam = P.gam; simAcc = 0;
     run = {
       dist: 0, coins: 0, distCoins: 0, pickCoins: 0, skimCoins: 0, gems: 0, picks: 0, rings: 0, balloons: 0, birds: 0,
-      combo: 0, comboT: 0, maxCombo: 0, nears: 0, swoops: 0, powerups: 0, pw: { shield: 0, magnet: 0, turbo: 0, feather: 0, x2: 0 }, landQ: '', shattered: false, idleT: 0, diving: false, diveTop: 0, rush: 0, nextRush: 25, booms: 0, boomArmed: false, chainId: -1, chainN: 0, path: [], pathT: 0, skimT: 0, skimShow: 0, maxAlt: 0, t: 0, record: false, end: '', endT: 0,
+      combo: 0, comboT: 0, maxCombo: 0, ff: false, nears: 0, swoops: 0, powerups: 0, pw: { shield: 0, magnet: 0, turbo: 0, feather: 0, x2: 0 }, landQ: '', shattered: false, idleT: 0, diving: false, diveTop: 0, rush: 0, nextRush: 25, booms: 0, boomArmed: false, chainId: -1, chainN: 0, path: [], pathT: 0, skimT: 0, skimShow: 0, maxAlt: 0, t: 0, record: false, end: '', endT: 0,
       bestAtStart: S.best, newBiomes: [], fuelFlash: 0, rocketFlash: 0,
     };
     trailN = 0; fovKick = 0; timeScale = 1; slowHold = 0; coast = 1; coasting = false;
@@ -883,6 +884,8 @@ import * as W3 from './world3d.js';
   let boostId = -1, keyUp = false, keyDown = false, keyLeft = false, keyRight = false, keyBoost = false;
   // computers with a mouse/trackpad get keyboard hints
   const KEYS = !!(window.matchMedia && window.matchMedia('(hover: hover) and (pointer: fine)').matches);
+  function ffBtn() { return { x: W / 2, y: H * 0.6 + 52, w: KEYS ? 190 : 160, h: 40 }; }
+  const inFF = (x, y) => { const b = ffBtn(); return Math.abs(x - b.x) < b.w / 2 + 6 && Math.abs(y - b.y) < b.h / 2 + 6; };
   function boostBtn() { const r = Math.min(46, W * 0.12); return { x: W - r - 22, y: H - r - 40, r }; }
   function pauseBtn() { return { x: W - 34, y: 34 + safeTop(), r: 22 }; }
   const probe = document.createElement('div');
@@ -907,6 +910,7 @@ import * as W3 from './world3d.js';
     }
     if (state === 'fly') {
       if (inCircle(pauseBtn(), x, y)) { pause(); return; }
+      if (coast > 1.25 && inFF(x, y)) { run.ff = !run.ff; run.idleT = 4; buzz(10); Sfx.tick(); return; }
       if (S.lv.rocket > 0 && inCircle(boostBtn(), x, y)) { boostId = e.pointerId; return; }
       if (stick.id === -1) { stick.id = e.pointerId; stick.ay = y; stick.y = y; stick.ax = x; stick.x = x; stick.on = true; }
     }
@@ -954,6 +958,7 @@ import * as W3 from './world3d.js';
       else if (state === 'aim') { aim.power = 1; launch(); }
     }
     if (k === 'Escape' || k === 'p') { if (state === 'fly') pause(); }
+    if ((k === 'f' || k === 'F') && state === 'fly' && coast > 1.25) { run.ff = !run.ff; run.idleT = 4; Sfx.tick(); }
   });
   window.addEventListener('keyup', (e) => {
     const k = e.key;
@@ -994,12 +999,15 @@ import * as W3 from './world3d.js';
     const inp = controlInput(dt);
     P.rocketOn = (boostId !== -1 || keyBoost) && P.rocket > 0;
     // fast-forward the dull part: engine out, slow glide or rollout, hands off the controls
-    const touching = Math.abs(inp.u) > 0.05 || Math.abs(inp.ux) > 0.05 || boostId !== -1 || keyBoost;
+    // a finger on the screen (even with the stick centred) or any key counts as flying
+    const touching = stick.on || Math.abs(inp.u) > 0.05 || Math.abs(inp.ux) > 0.05 || boostId !== -1 || keyBoost || keyUp || keyDown || keyLeft || keyRight;
     run.idleT = touching ? 0 : run.idleT + dt / Math.max(1, coast);
-    coasting = P.fuel <= 0 && !P.rocketOn && run.idleT > 1 && P.v < 1.5 * P.st.vbg && run.rush <= 0;
+    if (touching || P.fuel > 0) run.ff = false; // steering cancels the 10x finish
+    coasting = P.fuel <= 0 && !P.rocketOn && run.idleT > 3 && P.v < 1.5 * P.st.vbg && run.rush <= 0; // wait 3s hands-off
     simAcc += dt;
-    while (simAcc >= HSTEP && state === 'fly') {
-      simAcc -= HSTEP;
+    hstep = coast > 4 ? HSTEP * 2 : HSTEP; // gentle coasting at 10x is fine with 60 Hz physics
+    while (simAcc >= hstep && state === 'fly') {
+      simAcc -= hstep;
       prev.x = P.x; prev.y = P.y; prev.z = P.z; prev.p = P.p; prev.h = P.h; prev.gam = P.gam;
       physStep(inp.u, inp.ux);
     }
@@ -1055,9 +1063,9 @@ import * as W3 from './world3d.js';
     P.water = !!b.water && !onFloats; // seaplanes skim the water on their floats
     P.gy = ct.gy;
     P.fric = ct.k === 'gear' ? (onFloats && b.water ? 0.14 : 0.08) : 0.75;
-    if (run.pw.turbo > 0) C.kick(P, P.st.g * 2.4 * HSTEP);
+    if (run.pw.turbo > 0) C.kick(P, P.st.g * 2.4 * hstep);
     if (run.pw.feather > 0) lift = Math.max(lift, 7);
-    const ev = C.stepPlane(P, u, HSTEP, lift, ux);
+    const ev = C.stepPlane(P, u, hstep, lift, ux);
     if (ev === 'touch' && onTouch(b, ct) === 'crash') return;
     if (P.ground) {
       if (ct.k === 'gear') {
@@ -1075,8 +1083,8 @@ import * as W3 from './world3d.js';
     if (P.y > run.maxAlt) run.maxAlt = P.y;
     // skim bonus
     if (!P.ground && P.y < 3.5 * sig && P.v > P.st.vbg * 0.9) {
-      run.skimT += HSTEP;
-      const sc = HSTEP * 6 * sig * b.rate * incomeNow;
+      run.skimT += hstep;
+      const sc = hstep * 6 * sig * b.rate * incomeNow;
       run.skimCoins += sc; addCoins(sc, 'skim');
       run.skimShow = 0.3;
       if (Math.random() < 0.25) spawn(P.x - sig, 0.3 * sig, P.z, -P.v * 0.3, (2 + Math.random() * 3) * sig, (Math.random() - 0.5) * 3 * sig, 0.4, 0.5 * sig, '#ffd23a', -4 * sig);
@@ -1137,7 +1145,7 @@ import * as W3 from './world3d.js';
       switch (e.k) {
         case 'coin': {
           if ((run.rush > 0 || run.pw.magnet > 0) && ddx < 16 * sig && ddx > -4 * sig) { // gold rush / magnet power-up
-            const k = Math.min(1, HSTEP * 7);
+            const k = Math.min(1, hstep * 7);
             e.x += (P.x - e.x) * k; e.y += (P.y - e.y) * k; e.z += (P.z - e.z) * k;
           }
           const dy = e.y - P.y;
@@ -1163,7 +1171,7 @@ import * as W3 from './world3d.js';
         }
         case 'fuel': {
           const dy = e.y - P.y;
-          if (ddx * ddx + dy * dy + ddz * ddz < cr2 * 1.4) {
+          if (Math.abs(ddx) < 1.6 * sig && dy * dy + ddz * ddz < e.r * e.r) { // fly through the ring
             e.dead = true; P.fuel = Math.max(P.fuel, 0) + 1.5; Sfx.ring(); run.fuelFlash = 0.6;
             burstAt(e.x, e.y, e.z, 10, 6 * sig, 0.5, 0.6 * sig, '#ff5050', 0);
             floatText(W * 0.5, H * 0.36, '+FUEL', '#ff7070', 24, 0.9);
@@ -1177,7 +1185,7 @@ import * as W3 from './world3d.js';
         }
         case 'rfuel': {
           const dy = e.y - P.y;
-          if (ddx * ddx + dy * dy + ddz * ddz < cr2 * 1.5) {
+          if (Math.abs(ddx) < 1.6 * sig && dy * dy + ddz * ddz < e.r * e.r) { // fly through the ring
             e.dead = true; P.rocket = Math.min(P.rk.time, Math.max(0, P.rocket) + P.rk.time * 0.6);
             Sfx.rush(); buzz(15); run.rocketFlash = 0.8;
             burstAt(e.x, e.y, e.z, 16, 8 * sig, 0.6, 0.6 * sig, '#c56bff', 0);
@@ -1266,7 +1274,7 @@ import * as W3 from './world3d.js';
     if (P.ground && P.v < P.st.vbg * 0.15) endFlight('land');
     if (run.t > 600) endFlight('land');
     // trail
-    trailTimer += HSTEP;
+    trailTimer += hstep;
     if (trailTimer > 0.025) {
       trailTimer = 0;
       const L = planeLen() * 0.42, cp = Math.cos(P.p);
@@ -1446,6 +1454,12 @@ import * as W3 from './world3d.js';
     if (coast > 1.25 && state === 'fly') {
       txt('\u25B6\u25B6 ' + coast.toFixed(1) + 'x', W / 2, H * 0.6, 22, '#ffffff');
       txt(KEYS ? 'press any arrow to slow down' : 'touch to slow down', W / 2, H * 0.6 + 18, 12, '#dfe8ff');
+      // finish button: jump to 10x to get it over with
+      const fb = ffBtn();
+      ctx.fillStyle = run.ff ? 'rgba(255,140,26,0.95)' : 'rgba(20,28,64,0.75)';
+      ctx.beginPath(); if (ctx.roundRect) ctx.roundRect(fb.x - fb.w / 2, fb.y - fb.h / 2, fb.w, fb.h, 14); else ctx.rect(fb.x - fb.w / 2, fb.y - fb.h / 2, fb.w, fb.h); ctx.fill();
+      ctx.strokeStyle = '#ffffff'; ctx.lineWidth = 2.5; ctx.stroke();
+      txt(run.ff ? '\u25B6\u25B6\u25B6 10x ON' : '\u25B6\u25B6\u25B6 10x FINISH' + (KEYS ? '  (F)' : ''), fb.x, fb.y + 6, 15, '#ffffff');
     }
     if (run.rush > 0) {
       const bw = Math.min(200, W * 0.5);
@@ -1534,7 +1548,7 @@ import * as W3 from './world3d.js';
   function render(t, dt) {
     let px = P.x, py = P.y, pz = P.z, pitch = P.p, heading = P.h, bank = P.bank;
     if (state === 'fly') {
-      const a = simAcc / HSTEP;
+      const a = Math.min(1, simAcc / hstep);
       px = lerp(prev.x, P.x, a); py = lerp(prev.y, P.y, a); pz = lerp(prev.z, P.z, a); pitch = lerp(prev.p, P.p, a); heading = lerp(prev.h, P.h, a);
     }
     if (state === 'aim' || state === 'hangar') {
@@ -1546,7 +1560,7 @@ import * as W3 from './world3d.js';
       mode: state === 'result' ? 'ending' : state, t, dt, P, sig, len: planeLen(), px, py, pz, pitch, heading, bank,
       engineOn: state === 'fly' && P.fuel > 0, rocketOn: state === 'fly' && (P.rocketOn || (run && run.pw.turbo > 0)),
       shield: state === 'fly' && run && run.pw.shield > 0,
-      showPlane: !(run && run.shattered && state !== 'fly'), debris: run && run.shattered ? debris : null, camPitch: state === 'fly' ? lerp(prev.gam, P.gam, simAcc / HSTEP) : 0,
+      showPlane: !(run && run.shattered && state !== 'fly'), debris: run && run.shattered ? debris : null, camPitch: state === 'fly' ? lerp(prev.gam, P.gam, Math.min(1, simAcc / hstep)) : 0,
       ents, parts, trail, trailN, trailHead, trailStyle: trailStyle(), best: S.best, shake,
       aimYaw: state === 'aim' ? aim.yaw : 0, camX: W3.cameraX(), snap: snapCam,
       fovKick, ghost: state === 'fly' && run ? ghostAt(run.t) : null,
@@ -1594,7 +1608,9 @@ import * as W3 from './world3d.js';
     let gdt = dt;
     if (state === 'fly') {
       if (slowHold > 0) slowHold -= dt; else timeScale += (1 - timeScale) * Math.min(1, dt * 4);
-      coast += ((coasting ? 3 : 1) - coast) * Math.min(1, dt * (coasting ? 1.2 : 10));
+      const ffOn = run.ff && P.fuel <= 0 && !P.rocketOn;
+      const cT = ffOn ? 10 : coasting ? 3 : 1;
+      coast += (cT - coast) * Math.min(1, dt * (cT > coast ? (ffOn ? 3 : 0.8) : 10));
       gdt = dt * timeScale * coast;
       updateFly(gdt);
       if (run.fuelFlash > 0) run.fuelFlash -= dt;
