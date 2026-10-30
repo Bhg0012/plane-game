@@ -127,7 +127,7 @@ export function init(canvas) {
   pools.rfuel = new Pool(new THREE.CylinderGeometry(0.55, 0.55, 1.7, 12), lam('#a24bff', { emissive: '#4a1080' }), 20);
   pools.rfuelTip = new Pool(new THREE.ConeGeometry(0.55, 0.7, 12), lam('#ffb43a', { emissive: '#7a3a00' }), 20);
   const pRingG = new THREE.TorusGeometry(1, 0.13, 8, 32); pRingG.rotateY(Math.PI / 2);
-  pools.pring = new Pool(pRingG, lam('#ffffff', { emissive: '#333333' }), 20, true);
+  pools.pring = new Pool(pRingG, lam('#ffffff', { emissive: '#333333' }), 60, true);
   pools.picon = new Pool(new THREE.OctahedronGeometry(1, 0), new THREE.MeshBasicMaterial({ color: '#ffffff' }), 20, true);
   pools.debris = new Pool(new THREE.BoxGeometry(1, 1, 1), lam('#fff'), 40, true);
   pools.fuel = new Pool(new THREE.BoxGeometry(1.2, 1.6, 0.8), lam('#e63946', { emissive: '#400' }), 30);
@@ -620,11 +620,17 @@ export function frame(v) {
     switch (e.k) {
       case 'coin': pools.coin.add(e.x, e.y, e.z, s, s, s, t * 3 + e.x * 0.05); break;
       case 'gem': pools.gem.add(e.x, e.y + Math.sin(t * 3) * 0.3 * s, e.z, 1.1 * s, 1.6 * s, 1.1 * s, t * 2); break;
-      case 'fuel': pools.fuel.add(e.x, e.y, e.z, s, s, s, t * 1.5); break;
-      case 'rfuel': {
-        const by = e.y + Math.sin(t * 2.5 + e.x) * 0.3 * s, tilt = Math.sin(t * 1.7) * 0.3;
-        pools.rfuel.add(e.x, by, e.z, 1.2 * s, 1.2 * s, 1.2 * s, t * 2, null, tilt);
-        pools.rfuelTip.add(e.x, by + 1.4 * s, e.z, 1.2 * s, 1.2 * s, 1.2 * s, t * 2, null, tilt);
+      case 'fuel': { // fuel ring: fly through it, canister spinning inside
+        const pul = 1 + Math.sin(t * 4 + e.x) * 0.05;
+        pools.pring.add(e.x, e.y, e.z, e.r * pul, e.r * pul, e.r * pul, 0, colorOf('#ff4a4a'), t * 1.5);
+        pools.fuel.add(e.x, e.y, e.z, 0.9 * s, 0.9 * s, 0.9 * s, t * 1.5);
+        break;
+      }
+      case 'rfuel': { // rocket-fuel ring
+        const pul = 1 + Math.sin(t * 4 + e.x) * 0.05;
+        pools.pring.add(e.x, e.y, e.z, e.r * pul, e.r * pul, e.r * pul, 0, colorOf('#a24bff'), -t * 1.5);
+        pools.rfuel.add(e.x, e.y - 0.4 * s, e.z, 0.9 * s, 0.9 * s, 0.9 * s, t * 2);
+        pools.rfuelTip.add(e.x, e.y + 0.65 * s, e.z, 0.9 * s, 0.9 * s, 0.9 * s, t * 2);
         break;
       }
       case 'ring': pools.ring.add(e.x, e.y, e.z, e.r, e.r, e.r, 0); break;
