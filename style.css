@@ -166,3 +166,4 @@ textarea { width: 100%; height: 90px; border-radius: 10px; border: 2px solid #cf
 .confetti i { position: absolute; top: -12px; width: 8px; height: 14px; border-radius: 2px; animation: fall 2s cubic-bezier(.2,.6,.4,1) forwards; }
 @keyframes fall { to { top: 105%; transform: translateX(40px) rotate(720deg); opacity: .8; } }
 .tabs button { font-size: 12px; }
+.side-btn.pilots { background: linear-gradient(#ffb36b, #e9732b); }

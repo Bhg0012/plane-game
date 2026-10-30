@@ -122,6 +122,9 @@ export function init(canvas) {
 
   // pools
   const coinG = new THREE.CylinderGeometry(1, 1, 0.24, 16); coinG.rotateZ(Math.PI / 2);
+  const treatG = new THREE.CylinderGeometry(1, 1, 0.35, 14); treatG.rotateZ(Math.PI / 2);
+  pools.treat = new Pool(treatG, lam('#d99a55', { emissive: '#3a2000' }), 120);
+  pools.chip = new Pool(new THREE.IcosahedronGeometry(1, 0), lam('#5a3418'), 360);
   pools.coin = new Pool(coinG, lam('#ffd23a', { emissive: '#b07a00', flatShading: false }), 500);
   pools.gem = new Pool(new THREE.OctahedronGeometry(1), lam('#3fb2ff', { emissive: '#0b3a80' }), 30);
   pools.rfuel = new Pool(new THREE.CylinderGeometry(0.55, 0.55, 1.7, 12), lam('#a24bff', { emissive: '#4a1080' }), 20);
@@ -238,7 +241,7 @@ function trap(x0, x1, tx0, tx1, zt, th, ty) {
   g.setAttribute('position', new THREE.Float32BufferAttribute(v, 3)); g.setIndex(idx);
   const n = g.toNonIndexed(); n.computeVertexNormals(); return n;
 }
-export function setPlane(model, paint, len, parts, decal) {
+export function setPlane(model, paint, len, parts, decal, pilot) {
   parts = parts || { tail: true, cockpit: true, engine: true };
   if (planeGroup) { scene.remove(planeGroup); planeGroup.traverse((o) => { if (o.geometry) o.geometry.dispose(); }); }
   const M = MODELS[model], st = M.style || 'classic';
@@ -432,6 +435,32 @@ export function setPlane(model, paint, len, parts, decal) {
       for (const z of [-1, 1]) add(box(0.004, 0.006, sp), glow, x + 0.04, 0.03, z * sp / 2); // glowing wing veins
     }
     nozzles.push([-0.5, 0.01, 0]);
+  }
+
+  // ---- the animal pilot peeking out of the cockpit (original cute designs, built from simple shapes)
+  if (pilot && parts.cockpit && PILOT_LOOK[pilot]) {
+    const seat = { classic: [0.1, 0.16], gunship: [0.25, 0.14], stealth: [0.2, 0.11], flyingwing: [0.24, 0.1], spy: [0.22, 0.11], dragonfly: [0.3, 0.1] }[st] || [0.24, 0.13];
+    const [hx, hy] = seat, A = PILOT_LOOK[pilot], R = 0.062;
+    const sph = (r, c, x, y, z, sx, sy, sz) => { const m = add(new THREE.SphereGeometry(r, 12, 9), lam(c), hx + x, hy + y, z); if (sx) m.scale.set(sx, sy, sz); return m; };
+    sph(R, A.head, 0, 0, 0);
+    for (const z of [-1, 1]) {
+      sph(R * 0.2, '#ffffff', R * 0.8, R * 0.25, z * R * 0.42);            // eye whites
+      sph(R * 0.12, '#1b1b1b', R * 0.95, R * 0.27, z * R * 0.42);          // pupils
+      if (A.cheek) sph(R * 0.28, A.cheek, R * 0.55, -R * 0.35, z * R * 0.62); // cheeks
+      if (A.ear === 'round') sph(R * 0.32, A.earC || A.head, -R * 0.1, R * 0.85, z * R * 0.6);
+      if (A.ear === 'pointy') add(new THREE.ConeGeometry(R * 0.32, R * 0.8, 6), lam(A.earC || A.head), hx - R * 0.1, hy + R * 1.05, z * R * 0.55, z * 0.35, 0, 0);
+      if (A.ear === 'long') { const e = sph(R * 0.25, A.head, -R * 0.1, R * 1.4, z * R * 0.38, 0.7, 2.6, 0.7); e.rotation.x = z * 0.15; sph(R * 0.13, A.earC, -R * 0.02, R * 1.4, z * R * 0.38, 0.6, 2.2, 0.6); }
+      if (A.ear === 'tuft') add(new THREE.ConeGeometry(R * 0.2, R * 0.55, 5), lam(A.earC || A.head), hx - R * 0.2, hy + R * 0.95, z * R * 0.55, z * 0.5, 0, 0);
+      if (A.ear === 'horn') add(new THREE.ConeGeometry(R * 0.14, R * 0.6, 6), lam(A.earC), hx - R * 0.25, hy + R * 0.95, z * R * 0.4, z * 0.25, 0, -0.4);
+      if (A.whisk) add(new THREE.BoxGeometry(R * 0.02, R * 0.02, R * 0.9), lam('#ffffff'), hx + R * 0.9, hy - R * 0.1, z * R * 0.6);
+      if (A.owl) sph(R * 0.34, '#f4f1ea', R * 0.62, R * 0.25, z * R * 0.42, 0.4, 1, 1);  // big owl eye discs
+    }
+    if (A.muzzle) sph(R * 0.45, A.muzzle, R * 0.7, -R * 0.15, 0, 0.8, 0.75, 0.9);
+    if (A.beak) add(new THREE.ConeGeometry(R * 0.22, R * 0.6, 6).rotateZ(-Math.PI / 2), lam(A.beak), hx + R * 1.15, hy - R * 0.05, 0);
+    if (A.nose) sph(R * 0.13, A.nose, R * 1.02, A.muzzle ? -R * 0.02 : 0, 0);
+    if (A.face) sph(R * 0.75, A.face, R * 0.35, -R * 0.05, 0, 0.7, 0.85, 0.9);    // penguin face patch
+    add(new THREE.TorusGeometry(R * 0.98, R * 0.12, 6, 18).rotateY(Math.PI / 2), lam('#6b4428'), hx + R * 0.1, hy + R * 0.5, 0); // goggle strap
+    for (const z of [-1, 1]) add(new THREE.TorusGeometry(R * 0.22, R * 0.07, 6, 12).rotateY(Math.PI / 2), lam('#9fdcff', { emissive: '#1a3a55' }), hx + R * 0.95, hy + R * 0.62, z * R * 0.36); // goggles up on the forehead
   }
 
   // ---- decals
@@ -714,6 +743,12 @@ export function frame(v) {
     if (e.dead || e.x < xmin || e.x > xmax) continue;
     switch (e.k) {
       case 'coin': pools.coin.add(e.x, e.y, e.z, s, s, s, t * 3 + e.x * 0.05); break;
+      case 'treat': { // a chocolate-chip cookie spinning in the air
+        const by = e.y + Math.sin(t * 2.2 + e.x) * 0.3 * s, ry = t * 2 + e.x * 0.05, sc = 1.25 * s;
+        pools.treat.add(e.x, by, e.z, sc, sc, sc, ry);
+        for (let k = 0; k < 3; k++) { const a = ry + k * 2.1; pools.chip.add(e.x - Math.sin(a) * 0.22 * s, by + Math.cos(k * 2.4) * 0.55 * s, e.z + Math.cos(a) * 0.22 * s, 0.22 * s, 0.22 * s, 0.22 * s, k); }
+        break;
+      }
       case 'gem': pools.gem.add(e.x, e.y + Math.sin(t * 3) * 0.3 * s, e.z, 1.1 * s, 1.6 * s, 1.1 * s, t * 2); break;
       case 'fuel': { // fuel ring: fly through it, canister spinning inside
         const pul = 1 + Math.sin(t * 4 + e.x) * 0.05;
@@ -827,6 +862,19 @@ export function frame(v) {
   sunGlow.position.copy(sunDisc.position); sunGlow.scale.setScalar(sd * 0.08); sunGlow.lookAt(camera.position);
   renderer.render(scene, camera);
 }
+// pilot looks: head colour plus a few features
+const PILOT_LOOK = {
+  hammy: { head: '#e8b27a', cheek: '#fff3e0', ear: 'round', earC: '#f2a6a6', nose: '#ff8fa3' },
+  pip: { head: '#8a5a3a', ear: 'tuft', earC: '#6b4428', beak: '#ffb43a', cheek: '#f4e2c8' },
+  biscuit: { head: '#e9973c', ear: 'pointy', earC: '#d9822b', muzzle: '#fff6ea', nose: '#1b1b1b' },
+  mochi: { head: '#fafafa', ear: 'long', earC: '#ffb3c6', nose: '#ff8fa3', cheek: '#ffe3ea' },
+  ziggy: { head: '#ff7a2a', ear: 'pointy', earC: '#2a2a2a', muzzle: '#fff6ea', nose: '#1b1b1b' },
+  nugget: { head: '#1f2430', face: '#f4f4f4', beak: '#ff9a1a' },
+  pepper: { head: '#8b6a4a', ear: 'tuft', earC: '#6b4f34', beak: '#e0a030', owl: true },
+  whiskers: { head: '#9aa3ad', ear: 'pointy', earC: '#ffb3c6', nose: '#ff8fa3', whisk: true, muzzle: '#e8ecf0' },
+  sprout: { head: '#6fbf5a', cheek: '#9fd98a', nose: '#3a7a30' },
+  ember: { head: '#9b5de5', ear: 'horn', earC: '#ffd23a', muzzle: '#c9a3ff', nose: '#5a2a8a' },
+};
 const PW_COL = { shield: '#38b6ff', magnet: '#c56bff', turbo: '#ff4a2a', feather: '#7be276', x2: '#ffd23a' };
 const BALLOON_C = ['#ff5a5a', '#ffcf3a', '#5fd35a', '#3f8ff5', '#c56bff', '#ff8ad8'];
 

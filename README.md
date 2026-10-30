@@ -25,6 +25,7 @@ Local test: `python3 -m http.server` in this folder, then visit `http://localhos
 - **Swoops:** dive and level out to turn the height you lost into a speed burst (bigger the further you dropped, double if you pull out low).
 - **Juice:** slow-motion on near misses / arch threads / sonic booms, SONIC BOOM bonus when you break a speed barrier, GOLD RUSH at a x25 combo (double coins + coin magnet + gold trail for 6s), ring chains with a PERFECT CHAIN bonus, and a see-through ghost replaying your best run.
 - **Progression:** Pilot Rank (XP from every flight, rewards on each rank-up), 19 trophies with gem rewards, plane stat bars in the Hangar.
+- **Pilots:** 10 cute animal pilots that sit in your cockpit (Hammy the Hamster, Pip the Sparrow, Biscuit the Corgi, Mochi the Bunny, Ziggy the Fox, Nugget the Penguin, Pepper the Owl, Capt. Whiskers, Sprout the Turtle, Ember the Baby Dragon). Each has its own perk with 10 levels, bought with Treats - cookies you collect in flight plus a few for time in the air. Every pilot level you own adds +1% coins (crew bonus).
 - **Damage:** a wingtip clip snaps that wing off - you keep flying, but with less lift and a pull toward the broken side.
 - **Customise:** 12 paints, 6 trails, 6 decals (racing stripes, shark teeth, flames, stars, lightning bolt, checkered tail).
 - **Extras:** 7-day login streak, timed chest (3h), 3 free gems a day, 3 daily missions, paint jobs and trails (gems), records flag, x2 results for 3 gems.
