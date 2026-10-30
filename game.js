@@ -54,6 +54,25 @@ import * as W3 from './world3d.js';
     { name: 'Sunset', body: '#ff7b54', wing: '#ffd23a', cost: 10 },
     { name: 'Neon Night', body: '#1b1035', wing: '#ff3cac', cost: 18 },
   ];
+  // Animal pilots: each has one perk that grows with its level (1-10). Unlock and upgrade with treats.
+  const PILOTS = [
+    { id: 'hammy', name: 'Hammy', kind: 'Hamster', icon: '\u{1F439}', perk: 'More engine fuel', unit: (l) => '+' + l * 6 + '% fuel', unlock: 0, color: '#e8b27a' },
+    { id: 'pip', name: 'Pip', kind: 'Sparrow', icon: '\u{1F426}', perk: 'Smoother glide', unit: (l) => '-' + l * 3 + '% drag', unlock: 25, color: '#8a5a3a' },
+    { id: 'biscuit', name: 'Biscuit', kind: 'Corgi', icon: '\u{1F436}', perk: 'Coins worth more + mini magnet', unit: (l) => '+' + l * 6 + '% coins', unlock: 60, color: '#e9973c' },
+    { id: 'mochi', name: 'Mochi', kind: 'Bunny', icon: '\u{1F430}', perk: 'Bigger landing bonus, sturdier gear', unit: (l) => '+' + l * 10 + '% landing', unlock: 110, color: '#fafafa' },
+    { id: 'ziggy', name: 'Ziggy', kind: 'Fox', icon: '\u{1F98A}', perk: 'Longer combos, earlier Gold Rush', unit: (l) => '+' + (l * 0.1).toFixed(1) + 's combo', unlock: 180, color: '#ff7a2a' },
+    { id: 'nugget', name: 'Nugget', kind: 'Penguin', icon: '\u{1F427}', perk: 'Longer rocket burn', unit: (l) => '+' + l * 8 + '% rocket', unlock: 270, color: '#1f2430' },
+    { id: 'pepper', name: 'Pepper', kind: 'Owl', icon: '\u{1F989}', perk: 'More XP and treats', unit: (l) => '+' + l * 8 + '% XP', unlock: 380, color: '#8b6a4a' },
+    { id: 'whiskers', name: 'Capt. Whiskers', kind: 'Cat', icon: '\u{1F431}', perk: 'Stronger slingshot launch', unit: (l) => '+' + l * 3 + '% launch', unlock: 520, color: '#9aa3ad' },
+    { id: 'sprout', name: 'Sprout', kind: 'Turtle', icon: '\u{1F422}', perk: 'Power-ups last longer; Lv5+ starts with a shield', unit: (l) => '+' + l * 7 + '% power-ups', unlock: 700, color: '#6fbf5a' },
+    { id: 'ember', name: 'Ember', kind: 'Baby Dragon', icon: '\u{1F409}', perk: 'Extra engine thrust', unit: (l) => '+' + l * 4 + '% thrust', unlock: 950, color: '#9b5de5' },
+  ];
+  const PILOT_MAX = 10;
+  const pilotUpCost = (p, lvl) => Math.round((10 + p.unlock * 0.35) * Math.pow(1.38, lvl - 1));
+  // level of a perk that is active right now (only the equipped pilot's perk applies)
+  const perk = (id) => (S.pilot === id ? S.pilots[id] || 0 : 0);
+  // every pilot level you own adds +1% coins
+  const crewBonus = () => 1 + Object.values(S.pilots).reduce((a, b) => a + b, 0) * 0.01;
   const DECALS = [
     { id: '', name: 'None', icon: '\u2014', cost: 0 },
     { id: 'stripes', name: 'Racing Stripes', icon: '\u{1F3C1}', cost: 6 },
@@ -73,7 +92,7 @@ import * as W3 from './world3d.js';
   ];
 
   // ===================================================================== save
-  const VERSION = '1.17';
+  const VERSION = '1.18';
   const KEY = 'skyfling.save.v1';
   function defaults() {
     return {
@@ -82,19 +101,22 @@ import * as W3 from './world3d.js';
       best: 0, total: 0, flights: 0, maxBiome: 0,
       chestAt: 0, free: { day: '', used: 0, next: 0 },
       missions: { day: '', list: [] },
-      paints: [0], paint: 0, trails: [0], trail: 0, decals: [0], decal: 0, xp: 0, rank: 0, ach: {},
+      paints: [0], paint: 0, trails: [0], trail: 0, decals: [0], decal: 0, xp: 0, rank: 0, ach: {}, treats: 0, pilots: { hammy: 1 }, pilot: 'hammy',
       set: { sound: true, haptics: true, control: 'drag', sens: 1, perf: false, invert: true, pitch: 1 },
       tut: 0, savedAt: 0, streak: { day: '', n: 0 },
       sync: { code: '', asked: false, last: 0 },
       stats: { earned: 0, rings: 0, crashes: 0, playMs: 0 },
     };
   }
+  const DICTS = new Set(['ach', 'pilots']);
   function merge(base, src) {
     if (!src || typeof src !== 'object') return base;
     for (const k in base) {
       if (!(k in src)) continue;
       const b = base[k], s = src[k];
-      if (b && typeof b === 'object' && !Array.isArray(b)) base[k] = merge(b, s);
+      // open-ended maps (earned trophies, owned pilots) keep every saved key, not just the defaults
+      if (DICTS.has(k) && s && typeof s === 'object' && !Array.isArray(s)) base[k] = Object.assign({}, b, s);
+      else if (b && typeof b === 'object' && !Array.isArray(b)) base[k] = merge(b, s);
       else if (typeof s === typeof b) base[k] = s;
     }
     return base;
@@ -433,6 +455,7 @@ import * as W3 from './world3d.js';
         if (o.t === 'arch') makeCoinGroup(r, o.x - 12 * sig, o.z, o.h * 0.45, val, fresh); // thread the needle
       }
     }
+    if (ci >= 1 && r() < 0.5) fresh.push({ k: 'treat', x: x0 + r() * CH * sig, y: (3 + Math.pow(r(), 1.4) * ceil * 0.7) * sig, z: zc + (r() - 0.5) * SPREAD * 1.3 * sig, val: 1 + Math.floor(bi / 3), dead: false });
     const groups = ci === 0 ? 1 : r() < 0.65 ? 1 : 0;
     for (let g = 0; g < groups; g++) {
       const yb = (2.5 + Math.pow(r(), 1.5) * ceil * 0.8) * sig;
@@ -644,8 +667,12 @@ import * as W3 from './world3d.js';
   let hstep = HSTEP;
 
   function resetPlane() {
-    P.st = C.planeStats(S.lv.plane);
-    P.rk = C.rocketStats(Math.max(1, S.lv.rocket));
+    P.st = Object.assign({}, C.planeStats(S.lv.plane));
+    P.st.fuel *= 1 + perk('hammy') * 0.06;
+    P.st.drag *= 1 - perk('pip') * 0.03; P.st.ind *= 1 - perk('pip') * 0.03;
+    P.st.thrust *= 1 + perk('ember') * 0.04;
+    P.rk = Object.assign({}, C.rocketStats(Math.max(1, S.lv.rocket)));
+    P.rk.time *= 1 + perk('nugget') * 0.08;
     sig = P.st.sig;
     const ap = aimPos();
     P.x = ap.x; P.y = ap.y; P.z = 0; P.v = 0; P.p = 0; P.gam = 0; P.a = 0; P.h = 0; P.bank = 0; P.hr = 0;
@@ -695,10 +722,10 @@ import * as W3 from './world3d.js';
   function rebuildPlane() {
     buildContacts();
     const dec = (DECALS[S.decal] || DECALS[0]).id, lost = P.lostWing || 0;
-    const key = C.modelIndex(S.lv.plane) + ':' + S.paint + ':' + S.lv.plane + ':' + dec + ':' + lost;
+    const key = C.modelIndex(S.lv.plane) + ':' + S.paint + ':' + S.lv.plane + ':' + dec + ':' + lost + ':' + S.pilot;
     if (key === builtPlane) return;
     builtPlane = key;
-    W3.setPlane(C.modelIndex(S.lv.plane), PAINTS[S.paint] || PAINTS[0], planeLen(), Object.assign({}, C.planeParts(S.lv.plane), { lostWing: lost }), dec);
+    W3.setPlane(C.modelIndex(S.lv.plane), PAINTS[S.paint] || PAINTS[0], planeLen(), Object.assign({}, C.planeParts(S.lv.plane), { lostWing: lost }), dec, S.pilot);
   }
 
   function startAim() {
@@ -714,14 +741,15 @@ import * as W3 from './world3d.js';
     const power = aim.power;
     const ap = aimPos();
     P.x = ap.x; P.y = ap.y; P.z = ap.z;
-    P.v = P.st.vbg * C.slingPower(S.lv.sling) * power;
+    P.v = P.st.vbg * C.slingPower(S.lv.sling) * power * (1 + perk('whiskers') * 0.03);
     P.p = P.gam = LAUNCH_PITCH; P.a = 0; P.h = aim.yaw; P.bank = 0; P.hr = 0;
     prev.x = P.x; prev.y = P.y; prev.z = P.z; prev.p = P.p; prev.h = P.h; prev.gam = P.gam; simAcc = 0;
     run = {
       dist: 0, coins: 0, distCoins: 0, pickCoins: 0, skimCoins: 0, gems: 0, picks: 0, rings: 0, balloons: 0, birds: 0,
-      combo: 0, comboT: 0, maxCombo: 0, ff: false, pwKinds: {}, wingLost: false, nears: 0, swoops: 0, powerups: 0, pw: { shield: 0, magnet: 0, turbo: 0, feather: 0, x2: 0 }, landQ: '', shattered: false, idleT: 0, diving: false, diveTop: 0, rush: 0, nextRush: 25, booms: 0, boomArmed: false, chainId: -1, chainN: 0, path: [], pathT: 0, skimT: 0, skimShow: 0, maxAlt: 0, t: 0, record: false, end: '', endT: 0,
+      combo: 0, comboT: 0, maxCombo: 0, ff: false, pwKinds: {}, wingLost: false, nears: 0, swoops: 0, powerups: 0, pw: { shield: 0, magnet: 0, turbo: 0, feather: 0, x2: 0 }, landQ: '', shattered: false, idleT: 0, diving: false, diveTop: 0, rush: 0, nextRush: 25 - perk('ziggy'), treats: 0, booms: 0, boomArmed: false, chainId: -1, chainN: 0, path: [], pathT: 0, skimT: 0, skimShow: 0, maxAlt: 0, t: 0, record: false, end: '', endT: 0,
       bestAtStart: S.best, newBiomes: [], fuelFlash: 0, rocketFlash: 0,
     };
+    if (perk('sprout') >= 5) run.pw.shield = 20; // Sprout's head start
     trailN = 0; fovKick = 0; timeScale = 1; slowHold = 0; coast = 1; coasting = false;
     ghostRun = loadGhost();
     W3.resetScenery(P.x, P.z, sig);
@@ -908,8 +936,13 @@ import * as W3 from './world3d.js';
   }
   function finishRun() {
     const r = run;
-    r.landBonus = r.end === 'land' ? Math.round(r.coins * (LAND_Q[r.landQ] || LAND_Q.hard).bonus) : 0;
-    r.total = Math.round(r.coins + r.landBonus);
+    r.landBonus = r.end === 'land' ? Math.round(r.coins * (LAND_Q[r.landQ] || LAND_Q.hard).bonus * (1 + perk('mochi') * 0.1)) : 0;
+    r.crew = Math.round((r.coins + r.landBonus) * (crewBonus() - 1));
+    r.total = Math.round(r.coins + r.landBonus + r.crew);
+    // treats: the ones you grabbed plus a few for time in the air
+    r.treatsFound = r.treats; r.treatsAir = Math.floor(r.t / 15);
+    r.treats = Math.round((r.treats + r.treatsAir) * (1 + perk('pepper') * 0.08));
+    S.treats += r.treats;
     r.prevBest = S.best;
     if (r.dist > S.best) { S.best = r.dist; saveGhost(r.path); }
     S.total += r.dist; S.flights++;
@@ -918,7 +951,7 @@ import * as W3 from './world3d.js';
     r.achs = [];
     for (const [id, name, desc, gems, test] of ACH) if (!S.ach[id] && test(r)) { S.ach[id] = 1; S.gems += gems; r.achs.push({ name, gems }); }
     // pilot rank
-    r.xp = flightXP(r); r.rankFrom = S.rank; r.xpFrom = S.xp; r.rankUps = [];
+    r.xp = Math.round(flightXP(r) * (1 + perk('pepper') * 0.08)); r.rankFrom = S.rank; r.xpFrom = S.xp; r.rankUps = [];
     S.xp += r.xp;
     while (S.xp >= xpNeed(S.rank)) {
       S.xp -= xpNeed(S.rank); S.rank++;
@@ -1213,16 +1246,27 @@ import * as W3 from './world3d.js';
       if (ddx > 30 * sig || ddx < -30 * sig) continue;
       const ddz = e.z - P.z;
       switch (e.k) {
+        case 'treat': {
+          const dy = e.y - P.y;
+          if (ddx * ddx + dy * dy + ddz * ddz < cr2 * 1.6) {
+            e.dead = true; run.treats += e.val;
+            Sfx.gem(); buzz(8);
+            burstAt(e.x, e.y, e.z, 10, 5 * sig, 0.5, 0.45 * sig, '#d99a55', 0);
+            floatText(W * 0.5, H * 0.4, '+' + e.val + ' \u{1F36A}', '#ffd9a8', 22, 0.8);
+          }
+          break;
+        }
         case 'coin': {
-          if ((run.rush > 0 || run.pw.magnet > 0) && ddx < 16 * sig && ddx > -4 * sig) { // gold rush / magnet power-up
+          const magR = run.rush > 0 || run.pw.magnet > 0 ? 16 : perk('biscuit') ? 3 + perk('biscuit') * 0.5 : 0; // Biscuit = mini magnet
+          if (magR && ddx < magR * sig && ddx > -4 * sig && Math.abs(ddz) < magR * sig && Math.abs(e.y - P.y) < magR * sig) {
             const k = Math.min(1, hstep * 7);
             e.x += (P.x - e.x) * k; e.y += (P.y - e.y) * k; e.z += (P.z - e.z) * k;
           }
           const dy = e.y - P.y;
           if (ddx * ddx + dy * dy + ddz * ddz < cr2) {
             e.dead = true;
-            run.combo++; run.comboT = 1.4; if (run.combo > run.maxCombo) run.maxCombo = run.combo;
-            const v = e.val * (1 + Math.min(run.combo, 40) * 0.05) * (run.rush > 0 ? 2 : 1) * (run.pw.x2 > 0 ? 2 : 1);
+            run.combo++; run.comboT = 1.4 + perk('ziggy') * 0.1; if (run.combo > run.maxCombo) run.maxCombo = run.combo;
+            const v = e.val * (1 + Math.min(run.combo, 40) * 0.05) * (run.rush > 0 ? 2 : 1) * (run.pw.x2 > 0 ? 2 : 1) * (1 + perk('biscuit') * 0.06);
             checkRush();
             run.picks++; addCoins(v, 'pick');
             Sfx.coin(run.combo);
@@ -1382,7 +1426,7 @@ import * as W3 from './world3d.js';
   };
   function activatePower(kind, e) {
     const d = PW[kind];
-    run.pw[kind] = d.t;
+    run.pw[kind] = d.t * (1 + perk('sprout') * 0.07);
     run.powerups++; run.pwKinds[kind] = 1;
     Sfx.rush(); buzz([15, 20, 15]); fovKick = Math.max(fovKick, 8); shake = Math.max(shake, 0.2);
     burstAt(e.x, e.y, e.z, 24, 10 * sig, 0.7, 0.6 * sig, d.col, 0);
@@ -1394,7 +1438,7 @@ import * as W3 from './world3d.js';
     const say = (t, c, s) => floatText(W * 0.5, H * 0.42, t, c, s || 26, 1);
     if (b.water && ct.k !== 'gear') { Sfx.splash(); burstAt(P.x, 0, P.z, 18, 9 * sig, 0.8, 0.7 * sig, '#bfe6ff', -9 * sig); }
     if (ct.k === 'gear' && bankA < 0.35 && P.impactGam > -0.4) {
-      if (vy > 1.0) { say('GEAR COLLAPSED!', '#ff6b6b', 28); endFlight('crash', 'ground'); return 'crash'; }
+      if (vy > 1.0 + perk('mochi') * 0.05) { say('GEAR COLLAPSED!', '#ff6b6b', 28); endFlight('crash', 'ground'); return 'crash'; }
       if (vy < 0.22) { run.landQ = 'butter'; say('BUTTER LANDING!', '#ffd23a', 30); Sfx.fanfare(); buzz(10); }
       else if (vy < 0.45) { run.landQ = 'smooth'; say('SMOOTH LANDING', '#7be276'); Sfx.buy(); buzz(12); }
       else { run.landQ = 'hard'; say('HARD LANDING', '#ff9a3a'); Sfx.bounce(); buzz(25); shake = Math.max(shake, 0.35); P.gam = Math.min(0.12, P.impactVy * 0.3 / P.v); P.ground = false; P.y += 0.02 * sig; }
@@ -1510,6 +1554,7 @@ import * as W3 from './world3d.js';
     ctx.fillStyle = '#ffd23a'; ctx.beginPath(); ctx.arc(28, top + 12, 11, 0, 6.283); ctx.fill();
     ctx.strokeStyle = '#a8680a'; ctx.lineWidth = 2.5; ctx.stroke();
     txt(fmt(run.coins), 46, top + 19, 20, '#fff', 'left');
+    if (run.treats) txt('\u{1F36A} ' + run.treats, W - 16, top + 106, 16, '#ffd9a8', 'right');
     if (run.gems) {
       ctx.fillStyle = '#3fb2ff'; ctx.beginPath(); ctx.moveTo(28, top + 30); ctx.lineTo(37, top + 40); ctx.lineTo(28, top + 50); ctx.lineTo(19, top + 40); ctx.fill();
       txt('' + run.gems, 46, top + 47, 18, '#bfe6ff', 'left');
@@ -1817,6 +1862,10 @@ import * as W3 from './world3d.js';
     rb.classList.toggle('dim', S.lv.rocket === 0 ? S.gems < 1 : S.coins < C.COST.rocket(S.lv.rocket));
     refreshTimers();
     ensureMissions();
+    $('pilot-txt').textContent = '\u{1F36A}' + fmt(S.treats);
+    const pa = PILOTS.find((x) => x.id === S.pilot) || PILOTS[0];
+    $('pilot-emo').textContent = pa.icon;
+    $('pilot-badge').classList.toggle('hidden', !PILOTS.some((x) => { const l = S.pilots[x.id] || 0; return l < PILOT_MAX && S.treats >= (l ? pilotUpCost(x, l) : x.unlock); }));
     $('mission-badge').classList.toggle('hidden', !S.missions.list.some((m) => !m.claimed && m.prog >= m.target));
   }
   function refreshTimers() {
@@ -1985,6 +2034,47 @@ import * as W3 from './world3d.js';
   }
   $('btn-missions').addEventListener('click', () => { Sfx.init(); showMissions(); });
 
+  // little 2D portrait of a pilot (simple shapes, matches the 3D head)
+  function drawPilot(cvs, P0, locked) {
+    const c = cvs.getContext('2d'), w = cvs.width, h = cvs.height;
+    c.fillStyle = locked ? '#cfd3da' : '#e8f2ff'; c.fillRect(0, 0, w, h);
+    c.font = Math.round(h * 0.62) + 'px system-ui'; c.textAlign = 'center'; c.textBaseline = 'middle';
+    c.globalAlpha = locked ? 0.35 : 1; c.fillText(P0.icon, w / 2, h * 0.52); c.globalAlpha = 1;
+    if (!locked) { // aviator goggles on the forehead
+      c.strokeStyle = '#6b4428'; c.lineWidth = 5; c.beginPath(); c.moveTo(w * 0.28, h * 0.26); c.lineTo(w * 0.72, h * 0.26); c.stroke();
+      c.fillStyle = '#9fdcff'; c.strokeStyle = '#3a2a1a'; c.lineWidth = 3;
+      for (const x of [0.42, 0.58]) { c.beginPath(); c.arc(w * x, h * 0.26, h * 0.08, 0, 6.283); c.fill(); c.stroke(); }
+    }
+  }
+  function showPilots() {
+    let h = '<h2>PILOTS</h2><div class="center" style="margin:-4px 0 8px"><span class="tag" style="background:#ffd9a8">\u{1F36A} ' + fmt(S.treats) + ' treats</span> <span class="tag blue">Crew +' + Math.round((crewBonus() - 1) * 100) + '% coins</span></div>';
+    h += '<div class="grid" style="grid-template-columns:repeat(2,1fr)">';
+    PILOTS.forEach((P0, i) => {
+      const lvl = S.pilots[P0.id] || 0, own = lvl > 0, eq = S.pilot === P0.id;
+      const cost = own ? (lvl < PILOT_MAX ? pilotUpCost(P0, lvl) : 0) : P0.unlock;
+      h += '<div class="item ' + (eq ? 'sel' : '') + (own ? '' : ' locked') + '" style="opacity:1"><canvas width="160" height="110" data-pil="' + i + '"></canvas>' +
+        '<b>' + P0.name + '</b> <small style="display:inline">the ' + P0.kind + '</small><small>' + P0.perk + '</small>' +
+        (own ? '<small style="color:#1f78e0">Lv ' + lvl + ' \u00b7 ' + P0.unit(lvl) + '</small>' : '') +
+        '<div class="row" style="gap:4px;margin-top:4px">' +
+        (own && !eq ? '<button class="btn blue" style="padding:6px;font-size:12px;margin:0" data-eq="' + i + '">FLY</button>' : '') +
+        (own && lvl >= PILOT_MAX ? '<span class="tag">MAX</span>' : '<button class="btn" style="padding:6px;font-size:12px;margin:0" data-up="' + i + '"' + (S.treats < cost ? ' disabled' : '') + '>' + (own ? 'LV UP' : 'UNLOCK') + ' \u{1F36A}' + fmt(cost) + '</button>') +
+        '</div></div>';
+    });
+    h += '</div><button class="btn gray" data-close>CLOSE</button>';
+    openPanel(h, (p) => {
+      p.querySelectorAll('canvas[data-pil]').forEach((c) => { const P0 = PILOTS[+c.dataset.pil]; drawPilot(c, P0, !(S.pilots[P0.id] > 0)); });
+      p.querySelectorAll('[data-eq]').forEach((b) => b.addEventListener('click', () => { S.pilot = PILOTS[+b.dataset.eq].id; Sfx.buy(); save(); prepCourse(); rebuildPlane(); refreshUI(); showPilots(); }));
+      p.querySelectorAll('[data-up]').forEach((b) => b.addEventListener('click', () => {
+        const P0 = PILOTS[+b.dataset.up], lvl = S.pilots[P0.id] || 0, cost = lvl ? pilotUpCost(P0, lvl) : P0.unlock;
+        if (S.treats < cost || lvl >= PILOT_MAX) { Sfx.deny(); return; }
+        S.treats -= cost; S.pilots[P0.id] = lvl + 1;
+        if (!lvl) { S.pilot = P0.id; toast(P0.name + ' the ' + P0.kind + ' joins your crew!'); Sfx.evolve(); } else { Sfx.buy(); toast(P0.name + ' is now Lv ' + (lvl + 1)); }
+        buzz(15); save(); prepCourse(); rebuildPlane(); refreshUI(); showPilots();
+      }));
+    });
+  }
+  $('btn-pilots').addEventListener('click', () => { Sfx.init(); showPilots(); });
+
   // ---------------------------------------------------------------- shop / hangar collection
   let shopTab = 'planes';
   function planeThumb(cvs, model, paintIdx, locked) {
@@ -2089,6 +2179,8 @@ import * as W3 from './world3d.js';
     h += '<div><span>Pickups &amp; bonuses</span><span><i class="ico-coin"></i> ' + fmt(r.pickCoins) + '</span></div>';
     if (r.skimT >= 0.3) h += '<div><span>Ground skim ' + r.skimT.toFixed(1) + 's</span><span><i class="ico-coin"></i> ' + fmt(r.skimCoins) + '</span></div>';
     if (r.landBonus) h += '<div><span>Landing bonus</span><span><i class="ico-coin"></i> ' + fmt(r.landBonus) + '</span></div>';
+    if (r.crew) h += '<div><span>Crew bonus +' + Math.round((crewBonus() - 1) * 100) + '%</span><span><i class="ico-coin"></i> ' + fmt(r.crew) + '</span></div>';
+    h += '<div><span>Treats \u{1F36A} (' + r.treatsFound + ' found + ' + r.treatsAir + ' flight time)</span><span>+' + r.treats + '</span></div>';
     if (r.gems) h += '<div><span>Gems</span><span><i class="ico-gem"></i> ' + r.gems + '</span></div>';
     h += '<div class="total"><span>TOTAL</span><span><i class="ico-coin"></i> <span id="tot">0</span></span></div></div>';
     if (r.newBiomes.length) h += '<p class="center">Discovered: <b>' + r.newBiomes.map((b) => BIOMES[b].name).join(', ') + '</b></p>';
