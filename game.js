@@ -49,6 +49,19 @@ import * as W3 from './world3d.js';
     { name: 'Midnight', body: '#2b2d42', wing: '#ff3864', cost: 12 },
     { name: 'Gold Rush', body: '#ffcf3a', wing: '#b8860b', cost: 20 },
     { name: 'Arctic', body: '#e8f6ff', wing: '#58b8ff', cost: 12 },
+    { name: 'Chrome', body: '#d8dde3', wing: '#8a94a0', cost: 15 },
+    { name: 'Jungle', body: '#4f6b3a', wing: '#2f3f22', cost: 10 },
+    { name: 'Sunset', body: '#ff7b54', wing: '#ffd23a', cost: 10 },
+    { name: 'Neon Night', body: '#1b1035', wing: '#ff3cac', cost: 18 },
+  ];
+  const DECALS = [
+    { id: '', name: 'None', icon: '\u2014', cost: 0 },
+    { id: 'stripes', name: 'Racing Stripes', icon: '\u{1F3C1}', cost: 6 },
+    { id: 'shark', name: 'Shark Teeth', icon: '\u{1F988}', cost: 10 },
+    { id: 'flames', name: 'Hot Flames', icon: '\u{1F525}', cost: 10 },
+    { id: 'stars', name: 'Star Squadron', icon: '\u2B50', cost: 8 },
+    { id: 'bolt', name: 'Lightning Bolt', icon: '\u26A1', cost: 8 },
+    { id: 'checker', name: 'Checkered Tail', icon: '\u{1F3F4}', cost: 6 },
   ];
   const TRAILS = [
     { name: 'Smoke', color: 'rgba(255,255,255,0.75)', cost: 0 },
@@ -60,7 +73,7 @@ import * as W3 from './world3d.js';
   ];
 
   // ===================================================================== save
-  const VERSION = '1.16';
+  const VERSION = '1.17';
   const KEY = 'skyfling.save.v1';
   function defaults() {
     return {
@@ -69,7 +82,7 @@ import * as W3 from './world3d.js';
       best: 0, total: 0, flights: 0, maxBiome: 0,
       chestAt: 0, free: { day: '', used: 0, next: 0 },
       missions: { day: '', list: [] },
-      paints: [0], paint: 0, trails: [0], trail: 0,
+      paints: [0], paint: 0, trails: [0], trail: 0, decals: [0], decal: 0, xp: 0, rank: 0, ach: {},
       set: { sound: true, haptics: true, control: 'drag', sens: 1, perf: false, invert: true, pitch: 1 },
       tut: 0, savedAt: 0, streak: { day: '', n: 0 },
       sync: { code: '', asked: false, last: 0 },
@@ -435,8 +448,8 @@ import * as W3 from './world3d.js';
       const dz = (r() - 0.5) * 6 * sig, dyA = (2 + r() * 4) * sig;
       for (let i = 0; i < n; i++) fresh.push({ k: 'ring', x: bx + i * 16 * sig, y: by + Math.sin(i * 0.9) * dyA, z: bz + i * dz, r: 5 * sig, chain: ci, len: n, dead: false });
     } else if (r() < 0.5 && ci >= 1) fresh.push({ k: 'ring', x: x0 + r() * CH * sig, y: (8 + r() * ceil * 0.6) * sig, z: zc + (r() - 0.5) * SPREAD * sig, r: 5 * sig, dead: false });
-    if (S.lv.rocket > 0 && ci >= 2 && r() < 0.08) fresh.push({ k: 'rfuel', x: x0 + r() * CH * sig, y: (6 + r() * ceil * 0.55) * sig, z: zr(), r: 4.5 * sig, dead: false });
-    if (r() < 0.16 && ci >= 1) fresh.push({ k: 'fuel', x: x0 + r() * CH * sig, y: (5 + r() * ceil * 0.5) * sig, z: zr(), r: 4.5 * sig, dead: false });
+    if (S.lv.rocket > 0 && ci >= 2 && r() < 0.17) fresh.push({ k: 'rfuel', x: x0 + r() * CH * sig, y: (6 + r() * ceil * 0.55) * sig, z: zr(), r: 4.5 * sig, dead: false });
+    if (r() < 0.3 && ci >= 1) fresh.push({ k: 'fuel', x: x0 + r() * CH * sig, y: (5 + r() * ceil * 0.5) * sig, z: zr(), r: 4.5 * sig, dead: false });
     if (r() < 0.22 && ci >= 2) fresh.push({ k: 'balloon', x: x0 + r() * CH * sig, y: (6 + r() * ceil * 0.5) * sig, z: zr(), hue: Math.floor(r() * 6), dead: false });
     if (r() < 0.18 && ci >= 1) fresh.push({ k: 'lift', x: x0 + r() * CH * sig, y: 0, z: zr(), w: 10 * sig, top: ceil * 0.9 * sig, dead: false });
     if (r() < 0.09 && ci >= 2) fresh.push({ k: 'gem', x: x0 + r() * CH * sig, y: (ceil * (0.4 + r() * 0.5)) * sig, z: zr(), dead: false });
@@ -636,6 +649,7 @@ import * as W3 from './world3d.js';
     sig = P.st.sig;
     const ap = aimPos();
     P.x = ap.x; P.y = ap.y; P.z = 0; P.v = 0; P.p = 0; P.gam = 0; P.a = 0; P.h = 0; P.bank = 0; P.hr = 0;
+    P.lostWing = 0; P.liftMul = 1;
     P.fuel = P.st.fuel; P.rocket = S.lv.rocket > 0 ? P.rk.time : 0;
     P.rocketOn = false; P.ground = false; P.water = false;
   }
@@ -656,7 +670,7 @@ import * as W3 from './world3d.js';
     if (M.floats) pts.push({ x: 0.3, y: -0.27, z: 0.2, k: 'gear' }, { x: 0.3, y: -0.27, z: -0.2, k: 'gear' }, { x: -0.2, y: -0.27, z: 0.2, k: 'gear' }, { x: -0.2, y: -0.27, z: -0.2, k: 'gear' });
     else if (parts.wheels && !M.style) pts.push({ x: 0.12, y: -0.225, z: 0.14, k: 'gear' }, { x: 0.12, y: -0.225, z: -0.14, k: 'gear' });
     else if (parts.wheels) pts.push({ x: 0.1, y: -0.12, z: 0.12, k: 'gear' }, { x: 0.1, y: -0.12, z: -0.12, k: 'gear' }, { x: 0.35, y: -0.12, z: 0, k: 'gear' }); // jets: gear under the belly
-    CPTS = pts;
+    CPTS = P.lostWing ? pts.filter((q) => !(q.k === 'wing' && Math.sign(q.z) === P.lostWing)) : pts;
   }
   // Which part of the plane is lowest for a given attitude, and how high the centre sits when it touches.
   const contact = { gy: 0, k: 'belly', z: 0 };
@@ -680,10 +694,11 @@ import * as W3 from './world3d.js';
 
   function rebuildPlane() {
     buildContacts();
-    const key = C.modelIndex(S.lv.plane) + ':' + S.paint + ':' + S.lv.plane;
+    const dec = (DECALS[S.decal] || DECALS[0]).id, lost = P.lostWing || 0;
+    const key = C.modelIndex(S.lv.plane) + ':' + S.paint + ':' + S.lv.plane + ':' + dec + ':' + lost;
     if (key === builtPlane) return;
     builtPlane = key;
-    W3.setPlane(C.modelIndex(S.lv.plane), PAINTS[S.paint] || PAINTS[0], planeLen(), C.planeParts(S.lv.plane));
+    W3.setPlane(C.modelIndex(S.lv.plane), PAINTS[S.paint] || PAINTS[0], planeLen(), Object.assign({}, C.planeParts(S.lv.plane), { lostWing: lost }), dec);
   }
 
   function startAim() {
@@ -704,7 +719,7 @@ import * as W3 from './world3d.js';
     prev.x = P.x; prev.y = P.y; prev.z = P.z; prev.p = P.p; prev.h = P.h; prev.gam = P.gam; simAcc = 0;
     run = {
       dist: 0, coins: 0, distCoins: 0, pickCoins: 0, skimCoins: 0, gems: 0, picks: 0, rings: 0, balloons: 0, birds: 0,
-      combo: 0, comboT: 0, maxCombo: 0, ff: false, nears: 0, swoops: 0, powerups: 0, pw: { shield: 0, magnet: 0, turbo: 0, feather: 0, x2: 0 }, landQ: '', shattered: false, idleT: 0, diving: false, diveTop: 0, rush: 0, nextRush: 25, booms: 0, boomArmed: false, chainId: -1, chainN: 0, path: [], pathT: 0, skimT: 0, skimShow: 0, maxAlt: 0, t: 0, record: false, end: '', endT: 0,
+      combo: 0, comboT: 0, maxCombo: 0, ff: false, pwKinds: {}, wingLost: false, nears: 0, swoops: 0, powerups: 0, pw: { shield: 0, magnet: 0, turbo: 0, feather: 0, x2: 0 }, landQ: '', shattered: false, idleT: 0, diving: false, diveTop: 0, rush: 0, nextRush: 25, booms: 0, boomArmed: false, chainId: -1, chainN: 0, path: [], pathT: 0, skimT: 0, skimShow: 0, maxAlt: 0, t: 0, record: false, end: '', endT: 0,
       bestAtStart: S.best, newBiomes: [], fuelFlash: 0, rocketFlash: 0,
     };
     trailN = 0; fovKick = 0; timeScale = 1; slowHold = 0; coast = 1; coasting = false;
@@ -862,6 +877,35 @@ import * as W3 from './world3d.js';
     butter: { bonus: 0.25, tag: 'BUTTER LANDING', cls: '' }, smooth: { bonus: 0.15, tag: 'SMOOTH LANDING', cls: '' },
     hard: { bonus: 0.05, tag: 'HARD LANDING', cls: 'blue' }, belly: { bonus: 0, tag: 'BELLY SLIDE', cls: 'blue' },
   };
+  const ACH = [
+    ['first', 'First Flight', 'Complete a flight', 1, () => true],
+    ['km1', 'Long Haul', 'Fly 1 km in one flight', 2, (r) => r.dist >= 1000],
+    ['km5', 'Cross Country', 'Fly 5 km in one flight', 3, (r) => r.dist >= 5000],
+    ['km20', 'Globetrotter', 'Fly 20 km in one flight', 5, (r) => r.dist >= 20000],
+    ['butter', 'Butter Fingers', 'Make a butter landing', 2, (r) => r.end === 'land' && r.landQ === 'butter'],
+    ['near10', 'Daredevil', 'Get 10 near misses in one flight', 3, (r) => r.nears >= 10],
+    ['chain', 'Ring Master', 'Complete a perfect ring chain', 2, (r) => r.chains > 0],
+    ['boom', 'Sound Barrier', 'Trigger a sonic boom', 2, (r) => r.booms > 0],
+    ['rush', 'Gold Fever', 'Start a Gold Rush', 2, (r) => r.rushes > 0],
+    ['thread', 'Needle Threader', 'Fly through a rock arch', 2, (r) => r.threads > 0],
+    ['swoop5', 'Swoop Artist', 'Pull off 5 swoops in one flight', 2, (r) => r.swoops >= 5],
+    ['smash', 'Unstoppable', 'Smash through an obstacle with a shield', 2, (r) => r.shieldSmash > 0],
+    ['onewing', 'One Wing Wonder', 'Land after losing a wing', 4, (r) => r.wingLost && r.end === 'land'],
+    ['pw3', 'Power Hungry', 'Use 3 different power-ups in one flight', 3, (r) => Object.keys(r.pwKinds).length >= 3],
+    ['shatter', 'Spectacular', 'Shatter your plane', 1, (r) => r.shattered],
+    ['jet', 'Jet Age', 'Unlock your first jet', 3, () => C.modelIndex(S.lv.plane) >= 8],
+    ['city', 'Big City', 'Reach Metro City', 3, () => S.maxBiome >= 5],
+    ['orbit', 'To The Stars', 'Reach Orbit', 10, () => S.maxBiome >= 10],
+    ['future', 'From The Future', 'Unlock the Forward-Swept Raptor', 6, () => C.modelIndex(S.lv.plane) >= 16],
+  ];
+  const RANKS = ['Rookie', 'Cadet', 'Pilot', 'Flight Officer', 'Lieutenant', 'Captain', 'Major', 'Ace', 'Squadron Leader', 'Wing Commander', 'Group Captain', 'Air Commodore', 'Sky Marshal', 'Legend', 'Mythic'];
+  const rankName = (n) => (n < RANKS.length ? RANKS[n] : 'Mythic ' + (n - RANKS.length + 2));
+  const xpNeed = (n) => Math.round(120 * Math.pow(1.22, n));
+  function flightXP(r) {
+    const land = r.end === 'land' ? ({ butter: 25, smooth: 12, hard: 4 })[r.landQ] || 0 : 0;
+    return Math.round(10 + r.t * 1.5 + Math.min(80, r.dist / (40 * sig)) + r.nears * 4 + r.swoops * 3 + r.rings * 2 + r.picks * 0.5 +
+      r.booms * 10 + r.powerups * 4 + (r.threads || 0) * 6 + (r.chains || 0) * 8 + land);
+  }
   function finishRun() {
     const r = run;
     r.landBonus = r.end === 'land' ? Math.round(r.coins * (LAND_Q[r.landQ] || LAND_Q.hard).bonus) : 0;
@@ -870,6 +914,17 @@ import * as W3 from './world3d.js';
     if (r.dist > S.best) { S.best = r.dist; saveGhost(r.path); }
     S.total += r.dist; S.flights++;
     S.stats.earned += r.total; S.stats.rings += r.rings;
+    // trophies
+    r.achs = [];
+    for (const [id, name, desc, gems, test] of ACH) if (!S.ach[id] && test(r)) { S.ach[id] = 1; S.gems += gems; r.achs.push({ name, gems }); }
+    // pilot rank
+    r.xp = flightXP(r); r.rankFrom = S.rank; r.xpFrom = S.xp; r.rankUps = [];
+    S.xp += r.xp;
+    while (S.xp >= xpNeed(S.rank)) {
+      S.xp -= xpNeed(S.rank); S.rank++;
+      const g = 1 + Math.floor(S.rank / 4), c = missionCoins() * 2;
+      S.gems += g; S.coins += c; r.rankUps.push({ name: rankName(S.rank), gems: g, coins: c });
+    }
     // missions
     trackMission('dist', r.dist, true); trackMission('pick', r.picks, true); trackMission('combo', r.maxCombo, true);
     trackMission('rings', r.rings); trackMission('flights', 1); trackMission('skim', r.skimT); trackMission('near', r.nears); trackMission('swoop', r.swoops); trackMission('balloon', r.balloons);
@@ -1011,7 +1066,18 @@ import * as W3 from './world3d.js';
       prev.x = P.x; prev.y = P.y; prev.z = P.z; prev.p = P.p; prev.h = P.h; prev.gam = P.gam;
       physStep(inp.u, inp.ux);
     }
-    P.bank += ((P.ground ? 0 : (P.hr || 0) * 1.25) - P.bank) * Math.min(1, dt * (P.ground ? 8 : 3));
+    P.bank += ((P.ground ? 0 : (P.hr || 0) * 1.25 + (P.lostWing || 0) * 0.35) - P.bank) * Math.min(1, dt * (P.ground ? 8 : 3));
+    if (debris.length && !run.shattered) updateDebris(dt);
+    // wingtip contrails at speed
+    if (!P.ground && P.v > 1.7 * P.st.vbg) {
+      const L = planeLen();
+      for (let i = 0; i < CPTS.length; i++) {
+        const q = CPTS[i];
+        if (q.k !== 'wing') continue;
+        const w = toWorld(q.x, q.y, q.z, P.p, P.h, P.bank, tmpV);
+        spawn(P.x + w.x * L, P.y + w.y * L, P.z + w.z * L, 0, 0, 0, 0.7, 0.22 * sig, '#ffffff', 0, 0.5);
+      }
+    }
     run.t += dt;
     if (run.comboT > 0) { run.comboT -= dt; if (run.comboT <= 0) run.combo = 0; }
     if (run.rush > 0) run.rush -= dt;
@@ -1063,6 +1129,7 @@ import * as W3 from './world3d.js';
     P.water = !!b.water && !onFloats; // seaplanes skim the water on their floats
     P.gy = ct.gy;
     P.fric = ct.k === 'gear' ? (onFloats && b.water ? 0.14 : 0.08) : 0.75;
+    if (P.lostWing) ux = clamp(ux + P.lostWing * 0.55, -1, 1); // missing wing drags you into a spiral
     if (run.pw.turbo > 0) C.kick(P, P.st.g * 2.4 * hstep);
     if (run.pw.feather > 0) lift = Math.max(lift, 7);
     const ev = C.stepPlane(P, u, hstep, lift, ux);
@@ -1129,12 +1196,15 @@ import * as W3 from './world3d.js';
       const q = CPTS[i];
       if (q.k !== 'wing' && q.k !== 'nose') continue;
       const w = toWorld(q.x, q.y, q.z, P.p, P.h, P.bank, tmpV);
-      TIPS[nTips * 3] = P.x + w.x * Lp; TIPS[nTips * 3 + 1] = P.y + w.y * Lp; TIPS[nTips * 3 + 2] = P.z + w.z * Lp; nTips++;
+      TIPS[nTips * 3] = P.x + w.x * Lp; TIPS[nTips * 3 + 1] = P.y + w.y * Lp; TIPS[nTips * 3 + 2] = P.z + w.z * Lp;
+      TIPSIDE[nTips] = q.k === 'wing' ? Math.sign(q.z) : 0; nTips++;
     }
+    // 0 = no hit, 9 = body/nose hit, +-1 = only that wingtip hit
     const hitPlane = (e) => {
-      if (hitObst(e, P.x, P.y, P.z, pr)) return true;
-      for (let k = 0; k < nTips; k++) if (hitObst(e, TIPS[k * 3], TIPS[k * 3 + 1], TIPS[k * 3 + 2], tipR)) return true;
-      return false;
+      if (hitObst(e, P.x, P.y, P.z, pr)) return 9;
+      let side = 0;
+      for (let k = 0; k < nTips; k++) if (hitObst(e, TIPS[k * 3], TIPS[k * 3 + 1], TIPS[k * 3 + 2], tipR)) { if (!TIPSIDE[k]) return 9; side = TIPSIDE[k]; }
+      return side;
     };
     for (let i = 0; i < ents.length; i++) {
       const e = ents[i];
@@ -1205,7 +1275,7 @@ import * as W3 from './world3d.js';
               if (run.chainId === e.chain) run.chainN++; else { run.chainId = e.chain; run.chainN = 1; }
               if (run.chainN >= e.len) {
                 const v = Math.round(b.rate * 40 * sig * e.len * incomeNow);
-                addCoins(v, 'pick'); Sfx.fanfare(); slowmo(0.35, 0.25);
+                addCoins(v, 'pick'); Sfx.fanfare(); slowmo(0.35, 0.25); run.chains = (run.chains || 0) + 1;
                 floatText(W * 0.5, H * 0.36, 'PERFECT CHAIN! +' + fmt(v), '#ffd23a', 30, 1.2);
               } else floatText(W * 0.5, H * 0.38, 'RING ' + run.chainN + ' / ' + e.len, '#ffb43a', 28, 0.8);
             } else floatText(W * 0.5, H * 0.38, 'BOOST!', '#ffb43a', 28, 0.8);
@@ -1240,7 +1310,7 @@ import * as W3 from './world3d.js';
         }
         case 'obst': {
           if (e.t === 'arch' && !e.thr && Math.abs(ddx) < 2 * sig && Math.abs(ddz) < e.gap / 2 && P.y < e.h) {
-            e.thr = true; e.nm = true;
+            e.thr = true; e.nm = true; run.threads = (run.threads || 0) + 1;
             const v = Math.round(b.rate * 60 * sig * incomeNow);
             addCoins(v, 'pick'); run.combo += 5; run.comboT = 1.6; run.nears++;
             Sfx.ring(); buzz(20);
@@ -1248,8 +1318,10 @@ import * as W3 from './world3d.js';
             slowmo(0.3, 0.3);
           }
           if (P.y - pr - NEAR * sig - Lp * 0.6 > e.top) break;
-          if (hitPlane(e)) {
+          const hp = hitPlane(e);
+          if (hp) {
             if (run.pw.shield > 0) { // shield smashes straight through
+              run.shieldSmash = (run.shieldSmash || 0) + 1;
               run.pw.shield = 0; e.dead = true; P.v *= 0.85;
               Sfx.crash(); buzz([30, 20, 30]); shake = Math.max(shake, 0.6); slowmo(0.35, 0.25);
               burstAt(P.x, P.y, P.z, 30, 12 * sig, 0.9, 0.8 * sig, '#38b6ff', -3 * sig);
@@ -1257,6 +1329,7 @@ import * as W3 from './world3d.js';
               floatText(W * 0.5, H * 0.36, 'SHIELD SMASH!', '#38b6ff', 30, 1.1);
               break;
             }
+            if (hp !== 9 && !P.lostWing) { loseWing(hp, e); break; }
             endFlight('crash'); return;
           }
           if (!e.nm && hitObst(e, P.x, P.y, P.z, pr + NEAR * sig)) {
@@ -1283,7 +1356,22 @@ import * as W3 from './world3d.js';
     }
   }
   const NEAR = 2.4; // how close counts as a near miss, in plane-scale units
-  const tmpV = { x: 0, y: 0, z: 0 }, TIPS = new Float32Array(12);
+  const tmpV = { x: 0, y: 0, z: 0 }, TIPS = new Float32Array(12), TIPSIDE = new Int8Array(4);
+  // A wingtip clipped something: the wing snaps off and the plane keeps flying, crippled.
+  function loseWing(side, e) {
+    P.lostWing = side; P.liftMul = 0.62; P.v *= 0.85; e.nm = true;
+    run.wingLost = true;
+    const { wing } = planeColors(P.st.model), L = planeLen(), vb = P.st.vbg;
+    const w = toWorld(0.06, -0.03, side * 0.4, P.p, P.h, P.bank, tmpV);
+    debris.push({ x: P.x + w.x * L, y: P.y + w.y * L, z: P.z + w.z * L, vx: P.v * 0.4, vy: vb * 0.4, vz: side * vb * 0.5,
+      rx: P.bank, ry: -P.h, rz: P.p, wx: 6, wy: 3, wz: 9, sx: 0.24 * L, sy: 0.03 * L, sz: 0.5 * L, c: wing, rest: false });
+    rebuildPlane();
+    Sfx.hit(); Sfx.crash(); buzz([40, 20, 40]); shake = Math.max(shake, 0.7); slowmo(0.35, 0.3);
+    burstAt(P.x + w.x * L, P.y + w.y * L, P.z + w.z * L, 22, 9 * sig, 0.8, 0.6 * sig, '#ff9a3a', -3 * sig);
+    burstAt(P.x + w.x * L, P.y + w.y * L, P.z + w.z * L, 12, 6 * sig, 1.2, 1.0 * sig, '#666666', 0.5 * sig);
+    floatText(W * 0.5, H * 0.36, 'WING LOST!', '#ff6b6b', 30, 1.2);
+    floatText(W * 0.5, H * 0.36 + 30, 'fight the spin!', '#ffffff', 16, 1.2);
+  }
   // ---- power-ups from the rare coloured rings
   const PW = {
     shield: { name: 'SHIELD', icon: '\u{1F6E1}', col: '#38b6ff', t: 20, msg: 'blocks one crash' },
@@ -1295,7 +1383,7 @@ import * as W3 from './world3d.js';
   function activatePower(kind, e) {
     const d = PW[kind];
     run.pw[kind] = d.t;
-    run.powerups++;
+    run.powerups++; run.pwKinds[kind] = 1;
     Sfx.rush(); buzz([15, 20, 15]); fovKick = Math.max(fovKick, 8); shake = Math.max(shake, 0.2);
     burstAt(e.x, e.y, e.z, 24, 10 * sig, 0.7, 0.6 * sig, d.col, 0);
     banner(d.icon + ' ' + d.name + '!', d.msg);
@@ -1344,7 +1432,7 @@ import * as W3 from './world3d.js';
   }
   function checkRush() {
     if (run.combo < run.nextRush) return;
-    run.nextRush = run.combo + 30; run.rush = 6;
+    run.nextRush = run.combo + 30; run.rush = 6; run.rushes = (run.rushes || 0) + 1;
     Sfx.rush(); buzz([20, 30, 20]);
     banner('GOLD RUSH!', 'double coins + magnet for 6s');
     burstAt(P.x, P.y, P.z, 30, 10 * sig, 0.8, 0.5 * sig, '#ffd23a', 0);
@@ -1560,7 +1648,7 @@ import * as W3 from './world3d.js';
       mode: state === 'result' ? 'ending' : state, t, dt, P, sig, len: planeLen(), px, py, pz, pitch, heading, bank,
       engineOn: state === 'fly' && P.fuel > 0, rocketOn: state === 'fly' && (P.rocketOn || (run && run.pw.turbo > 0)),
       shield: state === 'fly' && run && run.pw.shield > 0,
-      showPlane: !(run && run.shattered && state !== 'fly'), debris: run && run.shattered ? debris : null, camPitch: state === 'fly' ? lerp(prev.gam, P.gam, Math.min(1, simAcc / hstep)) : 0,
+      showPlane: !(run && run.shattered && state !== 'fly'), debris: debris.length ? debris : null, camPitch: state === 'fly' ? lerp(prev.gam, P.gam, Math.min(1, simAcc / hstep)) : 0,
       ents, parts, trail, trailN, trailHead, trailStyle: trailStyle(), best: S.best, shake,
       aimYaw: state === 'aim' ? aim.yaw : 0, camX: W3.cameraX(), snap: snapCam,
       fovKick, ghost: state === 'fly' && run ? ghostAt(run.t) : null,
@@ -1710,7 +1798,7 @@ import * as W3 from './world3d.js';
     $('coins').textContent = fmt(S.coins);
     $('gems').textContent = fmt(S.gems);
     $('plane-name').textContent = MODELS[C.modelIndex(S.lv.plane)].name;
-    $('best-txt').textContent = S.best > 0 ? 'Best ' + fmtDist(S.best) + '  ·  ' + BIOMES[S.maxBiome].name : 'Fly as far as you can!';
+    $('best-txt').textContent = 'Rank ' + (S.rank + 1) + ' ' + rankName(S.rank) + (S.best > 0 ? '  \u00b7  Best ' + fmtDist(S.best) : '');
     for (const k of ['sling', 'plane', 'income']) {
       const el = document.querySelector('.c-' + k);
       const lvl = S.lv[k], cost = C.COST[k](lvl);
@@ -1864,10 +1952,20 @@ import * as W3 from './world3d.js';
     }
   }
   function missionCoins() { return Math.round(Math.max(100, Math.min(C.COST.sling(S.lv.sling), C.COST.plane(S.lv.plane), C.COST.income(S.lv.income)) * 1.5)); }
+  let missionTab = 'daily';
   function showMissions() {
     ensureMissions();
     const mc = missionCoins();
-    let h = '<h2>DAILY MISSIONS</h2>';
+    let h = '<h2>' + (missionTab === 'ach' ? 'TROPHIES' : 'DAILY MISSIONS') + '</h2><div class="tabs"><button data-mt="daily" class="' + (missionTab === 'daily' ? 'on' : '') + '">DAILY</button><button data-mt="ach" class="' + (missionTab === 'ach' ? 'on' : '') + '">TROPHIES ' + Object.keys(S.ach).length + '/' + ACH.length + '</button></div>';
+    if (missionTab === 'ach') {
+      for (const [id, name, desc, gems] of ACH) {
+        const done = !!S.ach[id];
+        h += '<div class="mission" style="' + (done ? '' : 'opacity:.6') + '"><div class="mr"><span><b>' + (done ? '\u{1F3C6} ' : '\u{1F512} ') + name + '</b><br><small>' + desc + '</small></span><span>' + (done ? '<span class="tag">DONE</span>' : '+' + gems + ' <i class="ico-gem"></i>') + '</span></div></div>';
+      }
+      h += '<button class="btn gray" data-close>CLOSE</button>';
+      openPanel(h, (p) => p.querySelectorAll('[data-mt]').forEach((b) => b.addEventListener('click', () => { missionTab = b.dataset.mt; showMissions(); })));
+      return;
+    }
     S.missions.list.forEach((m, i) => {
       const done = m.prog >= m.target, f = Math.min(1, m.prog / m.target);
       const progTxt = m.k === 'dist' ? fmtDist(Math.min(m.prog, m.target)) + ' / ' + fmtDist(m.target) : Math.floor(Math.min(m.prog, m.target)) + ' / ' + m.target;
@@ -1876,6 +1974,7 @@ import * as W3 from './world3d.js';
     });
     h += '<p class="sub">New missions every day</p><button class="btn gray" data-close>CLOSE</button>';
     openPanel(h, (p) => {
+      p.querySelectorAll('[data-mt]').forEach((b) => b.addEventListener('click', () => { missionTab = b.dataset.mt; showMissions(); }));
       p.querySelectorAll('[data-claim]').forEach((b) => b.addEventListener('click', () => {
         const m = S.missions.list[+b.dataset.claim];
         if (m.claimed || m.prog < m.target) return;
@@ -1899,7 +1998,14 @@ import * as W3 from './world3d.js';
   }
   function showShop() {
     const curM = C.modelIndex(S.lv.plane);
-    let h = '<h2>HANGAR</h2><div class="tabs"><button data-tab="planes" class="' + (shopTab === 'planes' ? 'on' : '') + '">PLANES</button><button data-tab="paint" class="' + (shopTab === 'paint' ? 'on' : '') + '">PAINT</button><button data-tab="trails" class="' + (shopTab === 'trails' ? 'on' : '') + '">TRAILS</button></div><div class="grid">';
+    let h = '<h2>HANGAR</h2><div class="tabs"><button data-tab="planes" class="' + (shopTab === 'planes' ? 'on' : '') + '">PLANES</button><button data-tab="paint" class="' + (shopTab === 'paint' ? 'on' : '') + '">PAINT</button><button data-tab="trails" class="' + (shopTab === 'trails' ? 'on' : '') + '">TRAILS</button><button data-tab="decals" class="' + (shopTab === 'decals' ? 'on' : '') + '">DECALS</button></div>';
+    if (shopTab === 'planes') { // how your plane stacks up against the best there is
+      const cur = C.planeStats(S.lv.plane), top = C.planeStats(100);
+      const row = (label, f, col) => '<div style="display:flex;align-items:center;gap:8px;font-weight:800;font-size:12px"><span style="width:52px">' + label + '</span><div class="bar" style="flex:1;margin:4px 0"><i style="width:' + Math.max(3, Math.round(f * 100)) + '%;background:' + col + '"></i></div></div>';
+      h += '<div class="mission" style="margin-bottom:10px"><div class="mt">' + MODELS[curM].name + ' \u00b7 Lv ' + S.lv.plane + '</div>' +
+        row('SPEED', cur.vbg / top.vbg, '#ff9a3c') + row('GLIDE', cur.glide / top.glide, '#3f8ff5') + row('ENGINE', cur.fuel / top.fuel, '#5fd35a') + '</div>';
+    }
+    h += '<div class="grid">';
     if (shopTab === 'planes') {
       MODELS.forEach((M, i) => {
         const locked = i > curM;
@@ -1910,6 +2016,11 @@ import * as W3 from './world3d.js';
         const own = S.paints.includes(i);
         const sw = Pn.body ? 'linear-gradient(135deg,' + Pn.body + ' 55%,' + Pn.wing + ' 55%)' : 'linear-gradient(135deg,#c89a63 55%,#a97c4a 55%)';
         h += '<div class="item ' + (S.paint === i ? 'sel' : '') + '" data-paint="' + i + '"><div class="swatch" style="background:' + sw + '"></div>' + Pn.name + '<small>' + (S.paint === i ? 'EQUIPPED' : own ? 'Tap to equip' : '<i class="ico-gem"></i> ' + Pn.cost) + '</small></div>';
+      });
+    } else if (shopTab === 'decals') {
+      DECALS.forEach((D, i) => {
+        const own = S.decals.includes(i);
+        h += '<div class="item ' + (S.decal === i ? 'sel' : '') + '" data-decal="' + i + '"><div class="swatch" style="display:flex;align-items:center;justify-content:center;font-size:30px;background:#e8f2ff">' + D.icon + '</div>' + D.name + '<small>' + (S.decal === i ? 'EQUIPPED' : own ? 'Tap to equip' : '<i class="ico-gem"></i> ' + D.cost) + '</small></div>';
       });
     } else {
       TRAILS.forEach((T, i) => {
@@ -1929,6 +2040,14 @@ import * as W3 from './world3d.js';
           S.gems -= PAINTS[i].cost; S.paints.push(i); Sfx.evolve();
         } else Sfx.buy();
         S.paint = i; save(); rebuildPlane(); refreshUI(); showShop();
+      }));
+      p.querySelectorAll('[data-decal]').forEach((b) => b.addEventListener('click', () => {
+        const i = +b.dataset.decal;
+        if (!S.decals.includes(i)) {
+          if (S.gems < DECALS[i].cost) { Sfx.deny(); toast('Need ' + DECALS[i].cost + ' gems'); return; }
+          S.gems -= DECALS[i].cost; S.decals.push(i); Sfx.evolve();
+        } else Sfx.buy();
+        S.decal = i; save(); rebuildPlane(); refreshUI(); showShop();
       }));
       p.querySelectorAll('[data-trail]').forEach((b) => b.addEventListener('click', () => {
         const i = +b.dataset.trail;
@@ -1973,6 +2092,10 @@ import * as W3 from './world3d.js';
     if (r.gems) h += '<div><span>Gems</span><span><i class="ico-gem"></i> ' + r.gems + '</span></div>';
     h += '<div class="total"><span>TOTAL</span><span><i class="ico-coin"></i> <span id="tot">0</span></span></div></div>';
     if (r.newBiomes.length) h += '<p class="center">Discovered: <b>' + r.newBiomes.map((b) => BIOMES[b].name).join(', ') + '</b></p>';
+    h += '<div style="margin-top:10px;font-weight:900;display:flex;justify-content:space-between;font-size:13px"><span>RANK ' + (S.rank + 1) + ' \u00b7 ' + rankName(S.rank) + '</span><span>+' + r.xp + ' XP</span></div>';
+    h += '<div class="bar" style="height:14px"><i id="xpbar" style="width:' + Math.round((r.rankUps.length ? 0 : r.xpFrom / xpNeed(S.rank)) * 100) + '%;background:linear-gradient(#8fd3ff,#3f8ff5);transition:width .9s ease"></i></div>';
+    for (const u of r.rankUps) h += '<div class="center"><span class="tag blue">RANK UP! ' + u.name.toUpperCase() + ' +' + u.gems + ' <i class="ico-gem"></i> +' + fmt(u.coins) + ' <i class="ico-coin"></i></span></div>';
+    for (const a of r.achs) h += '<div class="center"><span class="tag">\u{1F3C6} ' + a.name + ' +' + a.gems + ' <i class="ico-gem"></i></span></div>';
     const dblCost = 3;
     h += '<div class="row"><button class="btn purple" id="dbl" ' + (S.gems + r.gems < dblCost ? 'disabled' : '') + '>x2 <i class="ico-gem"></i>' + dblCost + '</button><button class="btn" id="collect">COLLECT</button></div>';
     openPanel(h, (p) => {
@@ -1983,7 +2106,21 @@ import * as W3 from './world3d.js';
       p.querySelector('#collect').addEventListener('click', () => collect(1));
       p.querySelector('#dbl').addEventListener('click', () => collect(2));
     }, false);
-    if (newBest) { Sfx.fanfare(); }
+    if (newBest || r.rankUps.length) { Sfx.fanfare(); confetti(); }
+    setTimeout(() => { const xb = document.getElementById('xpbar'); if (xb) xb.style.width = Math.round(S.xp / xpNeed(S.rank) * 100) + '%'; }, 120);
+  }
+  function confetti() {
+    const box = document.createElement('div'); box.className = 'confetti';
+    const cols = ['#ffd23a', '#ff5a5a', '#5fd35a', '#3f8ff5', '#c56bff', '#ff8ad8'];
+    for (let i = 0; i < 46; i++) {
+      const c = document.createElement('i');
+      c.style.left = Math.random() * 100 + '%'; c.style.background = cols[i % cols.length];
+      c.style.animationDelay = (Math.random() * 0.4).toFixed(2) + 's'; c.style.animationDuration = (1.4 + Math.random() * 1).toFixed(2) + 's';
+      c.style.transform = 'rotate(' + Math.round(Math.random() * 360) + 'deg)';
+      box.appendChild(c);
+    }
+    $('app').appendChild(box);
+    setTimeout(() => box.remove(), 2800);
   }
   function collect(mult) {
     if (!run || state !== 'result') return;
