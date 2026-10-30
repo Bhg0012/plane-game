@@ -23,6 +23,11 @@
     { name: 'Stealth Bomber', body: '#2b2f38', wing: '#23262e', prop: false, len: 5.6, style: 'flyingwing', delta: true, tip: [-0.22, 0.8] },
     { name: 'Hypersonic Spyplane', body: '#17191e', wing: '#1c1f26', prop: false, len: 6.0, style: 'spy', delta: true, tip: [-0.43, 0.4] },
     { name: 'Space Shuttle', body: '#ffffff', wing: '#222', prop: false, len: 6.2, bi: false, delta: true, style: 'shuttle', tip: [-0.29, 0.45] },
+    // far-future experimentals
+    { name: 'Forward-Swept Raptor', body: '#3d4f6b', wing: '#2a3a52', prop: false, len: 6.3, style: 'fswept', delta: true, tip: [0.12, 0.5] },
+    { name: 'Plasma Arrow', body: '#e8ecf4', wing: '#1b2240', prop: false, len: 6.4, style: 'plasma', delta: true, glow: '#38e0ff', tip: [-0.38, 0.42] },
+    { name: 'Ring-Wing Skimmer', body: '#f2c230', wing: '#2b2d42', prop: false, len: 6.5, style: 'ringwing', delta: true, glow: '#ffd23a', tip: [-0.3, 0.44] },
+    { name: 'Celestial Dragonfly', body: '#7b2cbf', wing: '#c8b6ff', prop: false, len: 6.8, style: 'dragonfly', delta: true, glow: '#c77dff', tip: [0.1, 0.62] },
   ];
   // Slingshot looks evolve every 5 levels.
   const SLING_TIERS = ['Twig Fork', 'Rope Sling', 'Iron Sling', 'Spiked Bastion', 'Steam Catapult', 'Royal Launcher', 'Crystal Sling', 'Arcane Cannon'];
@@ -138,7 +143,7 @@
     const a = (P.a || 0) + (aT - (P.a || 0)) * Math.min(1, dt * 2.2); // eased, so pitch changes feel weighty
     P.a = a;
 
-    let L = g * vn2 * liftCoef(a) * air;
+    let L = g * vn2 * liftCoef(a) * air * (P.liftMul || 1); // liftMul < 1 when a wing is missing
     if (L > 5 * g) L = 5 * g; else if (L < -2 * g) L = -2 * g;
     const D = st.drag * v * v + (st.ind / (v * v)) * (L / g) * (L / g);
     let T = 0;

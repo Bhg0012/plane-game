@@ -238,12 +238,17 @@ function trap(x0, x1, tx0, tx1, zt, th, ty) {
   g.setAttribute('position', new THREE.Float32BufferAttribute(v, 3)); g.setIndex(idx);
   const n = g.toNonIndexed(); n.computeVertexNormals(); return n;
 }
-export function setPlane(model, paint, len, parts) {
+export function setPlane(model, paint, len, parts, decal) {
   parts = parts || { tail: true, cockpit: true, engine: true };
   if (planeGroup) { scene.remove(planeGroup); planeGroup.traverse((o) => { if (o.geometry) o.geometry.dispose(); }); }
   const M = MODELS[model], st = M.style || 'classic';
   const matCache = new Map();
-  const lam = (c, extra) => { const k = c + JSON.stringify(extra || {}); let m = matCache.get(k); if (!m) { m = lamBase(c, extra); matCache.set(k, m); } return m; };
+  const lam = (c, extra) => {
+    const k = c + JSON.stringify(extra || {});
+    let m = matCache.get(k);
+    if (!m) { m = new THREE.MeshPhongMaterial(Object.assign({ color: c, flatShading: true, shininess: 70, specular: '#4a4a4a' }, extra || {})); matCache.set(k, m); }
+    return m;
+  };
   const ds = { side: THREE.DoubleSide };
   const mb = lam(paint.body || M.body, ds), mw = lam(paint.wing || M.wing, ds), md = lam('#2a2a2a'), mm = lam('#9aa3ad'), mr = lam('#e63946');
   const mg = lam(M.style === 'stealth' || M.style === 'flyingwing' ? '#d9b25a' : '#9fdcff', { emissive: M.style === 'stealth' || M.style === 'flyingwing' ? '#3a2a00' : '#1a3a55' });
@@ -384,6 +389,96 @@ export function setPlane(model, paint, len, parts) {
       nozzles.push([-0.43, 0, z]);
     }
     add(box(0.25, 0.004, 0.02), lam('#c0392b'), 0.05, 0.05, 0);
+  }
+
+  if (st === 'fswept') {
+    add(cyl(0.008, 0.075, 0.5), mb, 0.27, 0, 0); add(cyl(0.075, 0.065, 0.55), mb, -0.24, 0, 0);
+    if (parts.cockpit) add(new THREE.SphereGeometry(0.06, 14, 8), mg, 0.24, 0.06, 0).scale.set(2.2, 0.85, 0.9);
+    add(trap(-0.05, -0.25, 0.12, 0.0, 0.5, 0.022), mw, 0, -0.02, 0); add(trap(-0.05, -0.25, 0.12, 0.0, -0.5, 0.022), mw, 0, -0.02, 0); // forward sweep
+    add(trap(0.34, 0.24, 0.28, 0.22, 0.16, 0.012), mw, 0, 0.01, 0); add(trap(0.34, 0.24, 0.28, 0.22, -0.16, 0.012), mw, 0, 0.01, 0); // canards
+    for (const z of [-0.08, 0.08]) add(box(0.16, 0.17, 0.015), mw, -0.42, 0.11, z, z < 0 ? -0.3 : 0.3, 0, 0.45);
+    for (const z of [-0.1, 0.1]) add(box(0.2, 0.07, 0.05), md, 0.05, -0.03, z);
+    nozzles.push([-0.52, 0, 0]);
+  } else if (st === 'plasma') {
+    const glow = lam(M.glow, { emissive: M.glow });
+    add(cyl(0.004, 0.06, 0.6), mb, 0.22, 0, 0); add(cyl(0.06, 0.05, 0.5), mb, -0.3, 0, 0);
+    if (parts.cockpit) add(new THREE.SphereGeometry(0.05, 14, 8), mg, 0.22, 0.045, 0).scale.set(2.6, 0.8, 0.9);
+    add(trap(0.12, -0.5, -0.4, -0.52, 0.42, 0.02), mw, 0, -0.02, 0); add(trap(0.12, -0.5, -0.4, -0.52, -0.42, 0.02), mw, 0, -0.02, 0);
+    for (const z of [-1, 1]) {
+      add(box(0.62, 0.008, 0.012), glow, -0.12, -0.006, z * 0.21, 0, z * 0.68, 0); // glowing leading-edge strips
+      add(box(0.5, 0.012, 0.006), glow, 0.05, 0.0, z * 0.061);
+      add(box(0.14, 0.16, 0.012), mw, -0.44, 0.09, z * 0.12, z * 0.4, 0, 0.6);
+    }
+    add(new THREE.TorusGeometry(0.05, 0.012, 6, 16).rotateY(Math.PI / 2), glow, -0.54, 0, 0);
+    nozzles.push([-0.55, 0, 0]);
+  } else if (st === 'ringwing') {
+    const glow = lam(M.glow, { emissive: '#4a3a00' });
+    add(cyl(0.01, 0.07, 0.55), mb, 0.24, 0, 0); add(cyl(0.07, 0.05, 0.5), mb, -0.28, 0, 0);
+    if (parts.cockpit) add(new THREE.SphereGeometry(0.055, 14, 8), mg, 0.22, 0.05, 0).scale.set(2.2, 0.85, 0.9);
+    add(new THREE.TorusGeometry(0.42, 0.028, 8, 36).rotateY(Math.PI / 2), mw, -0.3, 0, 0).scale.set(4, 1, 1); // the ring wing
+    add(new THREE.TorusGeometry(0.42, 0.008, 6, 36).rotateY(Math.PI / 2), glow, -0.25, 0, 0);
+    for (const a of [0, 1, 2, 3]) { const an = a * Math.PI / 2 + Math.PI / 4; add(box(0.12, 0.38, 0.015), mw, -0.3, Math.sin(an) * 0.21, Math.cos(an) * 0.21, an, 0, 0); } // struts
+    add(trap(0.12, -0.04, 0.06, -0.02, 0.18, 0.015), mw, 0, -0.01, 0); add(trap(0.12, -0.04, 0.06, -0.02, -0.18, 0.015), mw, 0, -0.01, 0);
+    nozzles.push([-0.53, 0, 0]);
+  } else if (st === 'dragonfly') {
+    const glow = lam(M.glow, { emissive: M.glow });
+    const film = lam(M.wing, { transparent: true, opacity: 0.6, emissive: '#2a1a4a', side: THREE.DoubleSide });
+    add(cyl(0.03, 0.055, 0.35), mb, 0.28, 0, 0); add(cyl(0.055, 0.03, 0.3), mb, -0.02, 0, 0);
+    for (let i = 0; i < 4; i++) add(new THREE.SphereGeometry(0.035 - i * 0.005, 10, 8), mb, -0.2 - i * 0.075, 0.01, 0); // segmented tail
+    for (const z of [-0.035, 0.035]) add(new THREE.SphereGeometry(0.03, 10, 8), glow, 0.44, 0.02, z); // glowing eyes
+    for (const [x, sp] of [[0.12, 0.62], [-0.08, 0.56]]) {
+      add(trap(x + 0.06, x - 0.06, x + 0.02, x - 0.08, sp, 0.008, 0.03), film, 0, 0.02, 0);
+      add(trap(x + 0.06, x - 0.06, x + 0.02, x - 0.08, -sp, 0.008, 0.03), film, 0, 0.02, 0);
+      for (const z of [-1, 1]) add(box(0.004, 0.006, sp), glow, x + 0.04, 0.03, z * sp / 2); // glowing wing veins
+    }
+    nozzles.push([-0.5, 0.01, 0]);
+  }
+
+  // ---- decals
+  const FR = { classic: 0.1, gunship: 0.09, spy: 0.055, dragonfly: 0.055, stealth: 0.06, flyingwing: 0.12 }[st] || 0.075;
+  const DECALS = {
+    stripes: () => { add(box(0.85, 0.006, 0.025), lam('#ffffff'), -0.02, FR, 0.018); add(box(0.85, 0.006, 0.025), lam('#e63946'), -0.02, FR, -0.018); },
+    shark: () => {
+      for (const z of [-1, 1]) {
+        add(box(0.12, 0.035, 0.004), lam('#c0392b'), 0.38, -0.025, z * FR * 0.92, 0, z * 0.2, 0);
+        for (let i = 0; i < 5; i++) add(new THREE.ConeGeometry(0.007, 0.022, 3), lam('#ffffff'), 0.33 + i * 0.024, -0.012, z * FR * 0.94, Math.PI, 0, 0);
+        add(new THREE.SphereGeometry(0.012, 8, 6), lam('#1b1b1b'), 0.4, 0.03, z * FR * 0.85);
+      }
+    },
+    flames: () => {
+      for (const z of [-1, 1]) for (let i = 0; i < 3; i++) {
+        const c = i === 1 ? '#ffd23a' : '#ff6a1a';
+        add(new THREE.ConeGeometry(0.02, 0.22 - i * 0.05, 3).rotateZ(Math.PI / 2), lam(c, { emissive: '#3a1000' }), 0.2 - i * 0.03, -0.03 + i * 0.028, z * FR * 0.97);
+      }
+    },
+    stars: () => {
+      for (const z of [-0.3, 0.3]) add(new THREE.OctahedronGeometry(0.045, 0), lam('#ffffff'), 0.03, 0.0, z).scale.set(1, 0.15, 1);
+      add(new THREE.OctahedronGeometry(0.035, 0), lam('#ffffff'), -0.3, FR * 0.6, FR * 0.95).scale.set(1, 1, 0.15);
+      add(new THREE.OctahedronGeometry(0.035, 0), lam('#ffffff'), -0.3, FR * 0.6, -FR * 0.95).scale.set(1, 1, 0.15);
+    },
+    bolt: () => {
+      for (const z of [-1, 1]) {
+        const c = lam('#ffe14d', { emissive: '#4a3a00' });
+        add(box(0.16, 0.014, 0.004), c, 0.12, 0.02, z * FR * 0.97, 0, 0, -0.5);
+        add(box(0.12, 0.014, 0.004), c, 0.03, 0.0, z * FR * 0.97, 0, 0, 0.5);
+        add(box(0.16, 0.014, 0.004), c, -0.06, -0.02, z * FR * 0.97, 0, 0, -0.5);
+      }
+    },
+    checker: () => {
+      for (const z of [-1, 1]) for (let i = 0; i < 4; i++) for (let j = 0; j < 2; j++)
+        add(box(0.035, 0.035, 0.004), lam((i + j) % 2 ? '#ffffff' : '#1b1b1b'), -0.28 - i * 0.035, -0.017 + j * 0.035, z * FR * 0.8);
+    },
+  };
+  if (decal && DECALS[decal]) DECALS[decal]();
+  // a snapped-off wing: drop every part that sits outboard on that side
+  if (parts.lostWing) {
+    const bb = new THREE.Box3(), c = new THREE.Vector3();
+    for (const ch of g.children.slice()) {
+      if (!ch.isMesh) continue;
+      ch.updateMatrix(); ch.geometry.computeBoundingBox();
+      bb.copy(ch.geometry.boundingBox).applyMatrix4(ch.matrix); bb.getCenter(c);
+      if (c.z * parts.lostWing > 0.18) g.remove(ch);
+    }
   }
 
   // merge all static parts that share a material into one mesh: ~8 draw calls per plane instead of 40+
